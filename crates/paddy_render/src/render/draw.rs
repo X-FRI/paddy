@@ -1,6 +1,6 @@
+use color::Color;
 use nalgebra::Vector2;
 
-use crate::Color;
 
 use super::*;
 

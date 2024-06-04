@@ -8,6 +8,8 @@ pub mod coordinate;
 pub mod draw;
 pub mod camera;
 pub mod chaos;
+pub mod color;
+
 
 
 pub const WIDTH: usize = 1000;
