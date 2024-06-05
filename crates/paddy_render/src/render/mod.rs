@@ -9,6 +9,8 @@ pub mod draw;
 pub mod camera;
 pub mod chaos;
 pub mod color;
+pub mod light;
+pub mod shader;
 
 
 

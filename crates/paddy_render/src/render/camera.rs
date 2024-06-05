@@ -13,47 +13,74 @@ use super::{DEPTH, HEIGHT, WIDTH};
 /// 默认投射到 z=-1 上
 /// ! 禁止使用这个结构,它只是一个参考
 struct Camera {
-    pub eye: Vector3<f64>,
-    pub eye_target: Vector3<f64>,
-    pub up: Vector3<f64>,
+    eye: Vector3<f64>,
+    eye_target: Vector3<f64>,
+    up: Vector3<f64>,
+    /// 相机坐标系 z轴
+    z: Vector3<f64>,
     /// 模型矩阵 (用于将 世界坐标系的点 转为 相机坐标系的点)
-    pub model_view: Matrix4<f64>,
+    model_view: Matrix4<f64>,
     /// 最近渲染距离
-    pub z_near: f64,
+    z_near: f64,
     /// 最远渲染距离
     /// 0 > z_near > z_far
-    pub z_far: f64,
+    z_far: f64,
     /// z=-1的视口 左点 < 0, 为了简单点,它总是y轴对称, 所以 right右点=-left
-    pub left: f64,
+    left: f64,
     /// z=-1的视口 底点 < 0 , x轴对称 top=-bottom
-    pub bottom: f64,
-    /// 透视投影矩阵
-    pub projection: Matrix4<f64>,
+    bottom: f64,
+    /// 投影规范化矩阵
+    projection_normalized: Matrix4<f64>,
     /// 视口矩阵
-    pub viewport: Matrix4<f64>,
+    viewport: Matrix4<f64>,
 }
 
-impl Default for Camera {
-    fn default() -> Self {
+// impl Default for Camera {
+//     fn default() -> Self {
+//         Self {
+//             eye: Default::default(),
+//             eye_target: Default::default(),
+//             up: Default::default(),
+//             left: -1.,
+//             bottom: -1.,
+//             z_near: -1.,
+//             z_far: -1000.,
+//             model_view: Default::default(),
+//             projection_normalized: Default::default(),
+//             // 因为被 projection_normalized 压缩至 [-1,1]*[-1,1] 所以直接乘一半即可
+//             viewport: Matrix4::from_rows(&[
+//                 RowVector4::new(WIDTH as f64 / 2., 0., 0., 0.),
+//                 RowVector4::new(0., HEIGHT as f64 / 2., 0., 0.),
+//                 RowVector4::new(0., 0., DEPTH as f64 / 2., DEPTH as f64 / 2.),
+//                 RowVector4::new(0., 0., 0., 1.),
+//             ]),
+//         }
+//     }
+// }
+
+impl Camera {
+    pub fn new_perspective(eye: Vector3<f64>, eye_target: Vector3<f64>, up: Vector3<f64>) -> Self {
+        let (z_near, z_far, left, bottom) = (-1., -10000., -1., -1.);
         Self {
-            eye: Default::default(),
-            eye_target: Default::default(),
-            up: Default::default(),
-            left: -1.,
-            bottom: -1.,
-            z_near: -1.,
-            z_far: -1000.,
-            model_view: Default::default(),
-            projection: Default::default(),
-            // 因为被 normalize_m 压缩至 [-1,1]*[-1,1] 所以直接乘一半即可
-            viewport: Matrix4::from_rows(&[
-                RowVector4::new(WIDTH as f64 / 2., 0., 0., 0.),
-                RowVector4::new(0., HEIGHT as f64 / 2., 0., 0.),
-                RowVector4::new(0., 0., DEPTH as f64 / 2., DEPTH as f64 / 2.),
-                RowVector4::new(0., 0., 0., 1.),
-            ]),
+            eye,
+            eye_target,
+            up,
+            z:  (eye - eye_target).normalize(),
+            model_view: lookat(eye, eye_target, up),
+            z_near,
+            z_far,
+            left,
+            bottom,
+            projection_normalized: perspective_normalized(z_near, z_far, left,bottom),
+            viewport: viewport([-500.,-500.].into(),WIDTH as f64, HEIGHT as f64),
         }
     }
+    pub fn set_eye(&mut self,eye: Vector3<f64>){
+        self.eye = eye;
+        self.model_view = lookat(eye, self.eye_target, self.up);
+        self.z = (eye - self.eye_target).normalize()
+    }
+
 }
 
 /// 返回的矩阵可将 世界坐标上的点 转为 摄像机坐标上的点
@@ -96,10 +123,12 @@ pub fn viewport(n: Vector2<f64>, w: f64, h: f64) -> Matrix4<f64> {
 /// 透视投影规范化
 /// 0 > z_near > z_far
 /// 0 > left, 0 > bottom
+/// 投影平面是 z = z_near
+/// (left,bottom,z_near) 是 投影平面的 左下角
 /// 对称性 left = -right , bottom = -top
-/// 规范化到 [-1,1]*[-1,1]*[-1,1]
 /// z=z_far平面映射到z=1上
 /// z=z_near平面映射到z=-1上 , 所以z越小离摄像头越近
+/// 规范化到 [-1,1]*[-1,1]*[-1,1] 空间(NDC空间)
 /// 规范后任是右手坐标系
 /// @return 透视投影规范化矩阵
 pub fn perspective_normalized(z_near: f64, z_far: f64, left: f64, bottom: f64) -> Matrix4<f64> {
@@ -116,10 +145,27 @@ pub fn perspective_normalized(z_near: f64, z_far: f64, left: f64, bottom: f64) -
     ])
 }
 
+/// 正交投影规范化矩阵
+/// #untested
+pub fn orthogonal_normalized(z_near: f64, z_far: f64, left: f64, bottom: f64) -> Matrix4<f64> {
+    Matrix4::from_rows(&[
+        RowVector4::new(1. / -left, 0., 0., 0.),
+        RowVector4::new(0., 1. / -bottom, 0., 0.),
+        RowVector4::new(
+            0.,
+            0.,
+            2. / (z_far - z_near),
+            -(z_near + z_far) / (z_far - z_near),
+        ),
+        RowVector4::new(0., 0., 0., 1.),
+    ])
+}
+
 /// 透视投影矩阵
+/// d>0
 /// 返回的矩阵将 投射到 z=-d(相机坐标系) 的平面上
 /// 原点              变换后             进行投影
-/// [x,y,z,1] ==> [x,y,z,-z/d] ==> [x,y,z,-z/d] * -d/z = [x*-d/z,y*-d/z,d(实际上只用关心xy即可,z还是用之前的),1]
+/// [x,y,z,1] ==> [x,y,z,-z/d] ==> [x,y,z,-z/d] * -d/z = [x*-d/z,y*-d/z,-d(实际上只用关心xy即可,z还是用之前的),1]
 pub fn projection_perspective(d: f64) -> Matrix4<f64> {
     Matrix4::from_rows(&[
         RowVector4::new(1., 0., 0., 0.),
@@ -141,16 +187,15 @@ pub fn projection_perspective(d: f64) -> Matrix4<f64> {
 
 // 水平视场角的计算公式为 : a = 2 arctan(w/(2d))
 
-
 mod tests {
     use num::Float;
 
     use super::*;
 
     #[test]
-    fn test(){
-        let (z_near, z_far, left, bottom) = (-10.,-20.,-1.,-1.);
-        let m =     Matrix4::from_rows(&[
+    fn test() {
+        let (z_near, z_far, left, bottom) = (-10., -20., -1., -1.);
+        let m = Matrix4::from_rows(&[
             RowVector4::new(z_near / -left, 0., 0., 0.),
             RowVector4::new(0., z_near / -bottom, 0., 0.),
             RowVector4::new(
@@ -161,37 +206,41 @@ mod tests {
             ),
             RowVector4::new(0., 0., 1., 0.),
         ]);
-        let n_l_b = Vector4::new(left,bottom,z_near,1.);
-        let mut f_l_b = n_l_b*2.;
+        let n_l_b = Vector4::new(left, bottom, z_near, 1.);
+        let mut f_l_b = n_l_b * 2.;
         f_l_b.w = 1.;
-        println!("{}",m*n_l_b);
-        println!("{}",m*f_l_b);
-        let n_o = Vector4::new(0.,0.,-10.,1.);
-        println!("{}",m*n_o);
-        let f_o = Vector4::new(0.,0.,-20.,1.);
-        println!("{}",m*f_o);
+        println!("{}", m * n_l_b);
+        println!("{}", m * f_l_b);
+        let n_o = Vector4::new(0., 0., -10., 1.);
+        println!("{}", m * n_o);
+        let f_o = Vector4::new(0., 0., -20., 1.);
+        println!("{}", m * f_o);
         // 似乎是先做 位移 在做缩放 导致原点并非在原中心点
-        let o = Vector4::new(0.,0.,-1000./75.,1.);
-        println!("{}",m*o);
+        let o = Vector4::new(0., 0., -1000. / 75., 1.);
+        println!("{}", m * o);
+        println!(
+            "{}",
+            m.try_inverse().unwrap() * Vector4::new(0., 0., 0., 1.)
+        );
 
-        println!("{}",m.try_inverse().unwrap()*Vector4::new(0.,0.,0.,1.));
-
+        let x = Vector4::new(1., 0., -10., 1.);
+        println!("{}", m * x);
     }
 
     #[test]
     fn test_xyz() {
         let mut window = create_window();
         let mut buffer = create_buffer();
-    
+
         let mut eye = Vector3::new(110., 10., 0.);
         let center = Vector3::new(0., 0., 0.);
         let up = Vector3::new(0., 1., 0.);
-    
+
         let mut model_view = lookat(eye, center, up);
         let normalize_m = perspective_normalized(-1., -200., -1., -1.);
         println!("{normalize_m:?}");
         let viewport = viewport([-500., -500.].into(), WIDTH as f64, HEIGHT as f64);
-    
+
         let z = Vector4::new(0., 0., 100., 1.);
         let y = Vector4::new(0., 100., 0., 1.);
         let x = Vector4::new(100., 0., 0., 1.);
@@ -217,25 +266,25 @@ mod tests {
         // print!("x:{x}");
         // print!("{y}");
         // println!("{z}");
-    
+
         let mut a = 0.;
         let mut r = (eye.x * eye.x + eye.y * eye.y + eye.z * eye.z).sqrt();
-    
+
         while window.is_open() {
             buffer_fill_black(&mut buffer);
             model_view = lookat(eye, center, up);
-    
+
             let z = viewport * normalize_m * model_view * z;
             let y = viewport * normalize_m * model_view * y;
             let x = viewport * normalize_m * model_view * x;
             let o = viewport * normalize_m * model_view * o;
-    
+
             let n = |v: Vector4<f64>| -> Vector2<f64> { [v.x / v.w, v.y / v.w].into() };
-    
+
             draw::line(&mut buffer, n(o), n(x), Color::Red);
             draw::line(&mut buffer, n(o), n(y), Color::Blue);
             draw::line(&mut buffer, n(o), n(z), Color::Yellow);
-    
+
             window
                 .get_keys_pressed(KeyRepeat::Yes)
                 .iter()
@@ -258,6 +307,4 @@ mod tests {
             update_with_buffer(&mut window, &buffer);
         }
     }
-    
 }
-

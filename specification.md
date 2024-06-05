@@ -1,5 +1,25 @@
  
 
+# Label 
+
+## for fn
+
+```rust
+/// 标签永远紧贴在 fn 上,其他内容不可先于标签
+/// #label #label2
+fn f(){
+
+}
+```
+
+| label| |
+|--|--|
+|untested| 为经过测试的函数|
+|todo |未完成的函数|
+|wait |等待编写中的函数(往往占名时用)|
+
+
+
 # Git Commit Specification
 
 `<type>(<crate>:[<scope>;...];...) : <subject>`
@@ -16,6 +36,7 @@
 |test  | 测试用例，包括单元测试、集成测试等 |
 |chore  | 改变构建流程、或者增加依赖库、工具等 |
 |revert  | 回滚到上一个版本 |
+|chaos |过于混乱,跳过<crate><scope>,直接写<subject> |
 
 ## \<crate\>
 声明影响的crate\
