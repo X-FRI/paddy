@@ -78,7 +78,8 @@ pub fn lookat(eye: Vector3<f64>, center: Vector3<f64>, up: Vector3<f64>) -> Matr
 }
 
 /// viewport * normalize_m * model_view * v
-/// 似乎 n.x 和 n.y 并非在中心, 而是左下角
+/// n.x 和 n.y 并非在中心, 而是左下角
+/// 用于将 规范化后的点 转换到屏幕空间中 屏幕
 /// @return 视口矩阵
 pub fn viewport(n: Vector2<f64>, w: f64, h: f64) -> Matrix4<f64> {
     // let depth = 255.;
@@ -93,18 +94,25 @@ pub fn viewport(n: Vector2<f64>, w: f64, h: f64) -> Matrix4<f64> {
 }
 
 /// 透视投影规范化
+/// 0 > z_near > z_far
+/// 0 > left, 0 > bottom
+/// 对称性 left = -right , bottom = -top
+/// 规范化到 [-1,1]*[-1,1]*[-1,1]
+/// z=z_far平面映射到z=1上
+/// z=z_near平面映射到z=-1上 , 所以z越小离摄像头越近
+/// 规范后任是右手坐标系
 /// @return 透视投影规范化矩阵
-pub fn normalize_m(z_near: f64, z_far: f64, left: f64, bottom: f64) -> Matrix4<f64> {
+pub fn perspective_normalized(z_near: f64, z_far: f64, left: f64, bottom: f64) -> Matrix4<f64> {
     Matrix4::from_rows(&[
-        RowVector4::new(z_near / left, 0., 0., 0.),
-        RowVector4::new(0., z_near / bottom, 0., 0.),
+        RowVector4::new(z_near / -left, 0., 0., 0.),
+        RowVector4::new(0., z_near / -bottom, 0., 0.),
         RowVector4::new(
             0.,
             0.,
-            (z_near - z_far) / (z_far - z_near),
+            (z_near + z_far) / (z_far - z_near),
             (-2. * z_near * z_far) / (z_far - z_near),
         ),
-        RowVector4::new(0., 0., -1., 0.),
+        RowVector4::new(0., 0., 1., 0.),
     ])
 }
 
@@ -128,83 +136,128 @@ pub fn projection_perspective(d: f64) -> Matrix4<f64> {
 // | 0 0 n+f -fn
 // | 0 0 1   0
 
-#[test]
-fn test_xyz() {
-    let mut window = create_window();
-    let mut buffer = create_buffer();
+// 观察空间(view space) 转换到 NDC空间 ,这样可以使得裁剪更加高效(有统一的前置标准)
+// 我们的标准是 NDC空间为 [-1,1]*[-1,1]*[-1,1]
 
-    let mut eye = Vector3::new(110., 10., 0.);
-    let center = Vector3::new(0., 0., 0.);
-    let up = Vector3::new(0., 1., 0.);
+// 水平视场角的计算公式为 : a = 2 arctan(w/(2d))
 
-    let mut model_view = lookat(eye, center, up);
-    let normalize_m = normalize_m(-1., -200., -1., -1.);
-    println!("{normalize_m:?}");
-    let viewport = viewport([-500., -500.].into(), WIDTH as f64, HEIGHT as f64);
 
-    let z = Vector4::new(0., 0., 100., 1.);
-    let y = Vector4::new(0., 100., 0., 1.);
-    let x = Vector4::new(100., 0., 0., 1.);
-    let o = Vector4::new(0., 0., 0., 1.);
-    // let z = model_view * z;
-    // let y = model_view * y;
-    // let x = model_view * x;
-    // let o = model_view * o;
-    // print!("x:{x}");
-    // print!("{y}");
-    // println!("{z}");
-    // let z = normalize_m * z;
-    // let y = normalize_m * y;
-    // let x = normalize_m * x;
-    // let o = normalize_m * o;
-    // print!("x:{x}");
-    // print!("{y}");
-    // println!("{z}");
-    // let z = viewport * z;
-    // let y = viewport * y;
-    // let x = viewport * x;
-    // let o = viewport * o;
-    // print!("x:{x}");
-    // print!("{y}");
-    // println!("{z}");
+mod tests {
+    use num::Float;
 
-    let mut a = 0.;
-    let mut r = (eye.x * eye.x + eye.y * eye.y + eye.z * eye.z).sqrt();
+    use super::*;
 
-    while window.is_open() {
-        buffer_fill_black(&mut buffer);
-        model_view = lookat(eye, center, up);
+    #[test]
+    fn test(){
+        let (z_near, z_far, left, bottom) = (-10.,-20.,-1.,-1.);
+        let m =     Matrix4::from_rows(&[
+            RowVector4::new(z_near / -left, 0., 0., 0.),
+            RowVector4::new(0., z_near / -bottom, 0., 0.),
+            RowVector4::new(
+                0.,
+                0.,
+                (z_near + z_far) / (z_far - z_near),
+                (-2. * z_near * z_far) / (z_far - z_near),
+            ),
+            RowVector4::new(0., 0., 1., 0.),
+        ]);
+        let n_l_b = Vector4::new(left,bottom,z_near,1.);
+        let mut f_l_b = n_l_b*2.;
+        f_l_b.w = 1.;
+        println!("{}",m*n_l_b);
+        println!("{}",m*f_l_b);
+        let n_o = Vector4::new(0.,0.,-10.,1.);
+        println!("{}",m*n_o);
+        let f_o = Vector4::new(0.,0.,-20.,1.);
+        println!("{}",m*f_o);
+        // 似乎是先做 位移 在做缩放 导致原点并非在原中心点
+        let o = Vector4::new(0.,0.,-1000./75.,1.);
+        println!("{}",m*o);
 
-        let z = viewport * normalize_m * model_view * z;
-        let y = viewport * normalize_m * model_view * y;
-        let x = viewport * normalize_m * model_view * x;
-        let o = viewport * normalize_m * model_view * o;
+        println!("{}",m.try_inverse().unwrap()*Vector4::new(0.,0.,0.,1.));
 
-        let n = |v: Vector4<f64>| -> Vector2<f64> { [v.x / v.w, v.y / v.w].into() };
-
-        draw::line(&mut buffer, n(o), n(x), Color::Red);
-        draw::line(&mut buffer, n(o), n(y), Color::Blue);
-        draw::line(&mut buffer, n(o), n(z), Color::Yellow);
-
-        window
-            .get_keys_pressed(KeyRepeat::Yes)
-            .iter()
-            .for_each(|key| match key {
-                Key::A => {
-                    a = a + 0.02;
-                    eye.z = r * num::Float::sin(a);
-                    eye.x = r * num::Float::cos(a);
-                }
-                Key::D => {
-                    a = a - 0.02;
-                    eye.z = r * num::Float::sin(a);
-                    eye.x = r * num::Float::cos(a);
-                }
-                Key::W => {}
-                Key::S => {}
-                Key::C => {}
-                _ => {}
-            });
-        update_with_buffer(&mut window, &buffer);
     }
+
+    #[test]
+    fn test_xyz() {
+        let mut window = create_window();
+        let mut buffer = create_buffer();
+    
+        let mut eye = Vector3::new(110., 10., 0.);
+        let center = Vector3::new(0., 0., 0.);
+        let up = Vector3::new(0., 1., 0.);
+    
+        let mut model_view = lookat(eye, center, up);
+        let normalize_m = perspective_normalized(-1., -200., -1., -1.);
+        println!("{normalize_m:?}");
+        let viewport = viewport([-500., -500.].into(), WIDTH as f64, HEIGHT as f64);
+    
+        let z = Vector4::new(0., 0., 100., 1.);
+        let y = Vector4::new(0., 100., 0., 1.);
+        let x = Vector4::new(100., 0., 0., 1.);
+        let o = Vector4::new(0., 0., 0., 1.);
+        // let z = model_view * z;
+        // let y = model_view * y;
+        // let x = model_view * x;
+        // let o = model_view * o;
+        // print!("x:{x}");
+        // print!("{y}");
+        // println!("{z}");
+        // let z = normalize_m * z;
+        // let y = normalize_m * y;
+        // let x = normalize_m * x;
+        // let o = normalize_m * o;
+        // print!("x:{x}");
+        // print!("{y}");
+        // println!("{z}");
+        // let z = viewport * z;
+        // let y = viewport * y;
+        // let x = viewport * x;
+        // let o = viewport * o;
+        // print!("x:{x}");
+        // print!("{y}");
+        // println!("{z}");
+    
+        let mut a = 0.;
+        let mut r = (eye.x * eye.x + eye.y * eye.y + eye.z * eye.z).sqrt();
+    
+        while window.is_open() {
+            buffer_fill_black(&mut buffer);
+            model_view = lookat(eye, center, up);
+    
+            let z = viewport * normalize_m * model_view * z;
+            let y = viewport * normalize_m * model_view * y;
+            let x = viewport * normalize_m * model_view * x;
+            let o = viewport * normalize_m * model_view * o;
+    
+            let n = |v: Vector4<f64>| -> Vector2<f64> { [v.x / v.w, v.y / v.w].into() };
+    
+            draw::line(&mut buffer, n(o), n(x), Color::Red);
+            draw::line(&mut buffer, n(o), n(y), Color::Blue);
+            draw::line(&mut buffer, n(o), n(z), Color::Yellow);
+    
+            window
+                .get_keys_pressed(KeyRepeat::Yes)
+                .iter()
+                .for_each(|key| match key {
+                    Key::A => {
+                        a = a + 0.02;
+                        eye.z = r * num::Float::sin(a);
+                        eye.x = r * num::Float::cos(a);
+                    }
+                    Key::D => {
+                        a = a - 0.02;
+                        eye.z = r * num::Float::sin(a);
+                        eye.x = r * num::Float::cos(a);
+                    }
+                    Key::W => {}
+                    Key::S => {}
+                    Key::C => {}
+                    _ => {}
+                });
+            update_with_buffer(&mut window, &buffer);
+        }
+    }
+    
 }
+
