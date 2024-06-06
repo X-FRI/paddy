@@ -1,5 +1,5 @@
 [package]
-name = "paddy_render"
+name = "paddy_input"
 version = "0.1.0"
 edition = "2021"
 

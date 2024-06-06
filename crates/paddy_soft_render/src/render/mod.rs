@@ -37,7 +37,7 @@ pub fn create_window() -> Window {
     .unwrap_or_else(|e| {
         panic!("window create:{}", e);
     });
-    window.set_target_fps(60);
+    window.set_target_fps(30);
     window
 }
 pub fn create_buffer() -> WindowBuffer {
@@ -45,10 +45,30 @@ pub fn create_buffer() -> WindowBuffer {
     let buffer: WindowBuffer = vec![0; WIDTH * HEIGHT];
     buffer
 }
+/// 越小约应该被渲染
 pub fn create_z_buffer() -> ZBuffer {
-    let z_buffer: ZBuffer = vec![0.; WIDTH * HEIGHT];
+    let z_buffer: ZBuffer = vec![f64::MAX; WIDTH * HEIGHT];
     z_buffer
 }
+pub fn set_z_buffer(z_buffer: &mut Vec<f64>, x: i32, y: i32, v: f64) {
+    if x < -499 || x > 499 || y < -499 || y > 499 {
+        // panic!("坐标系溢出");
+        return;
+    }
+    let x = (x + (WIDTH / 2) as i32) as usize;
+    let y = (-y * WIDTH as i32 + ((HEIGHT / 2) * WIDTH) as i32) as usize;
+    z_buffer[y + x] = v;
+}
+pub fn get_z_buffer(z_buffer: &mut Vec<f64>, x: i32, y: i32)->Option<f64>{
+    if x < -499 || x > 499 || y < -499 || y > 499 {
+        // panic!("坐标系溢出");
+        return None;
+    }
+    let x = (x + (WIDTH / 2) as i32) as usize;
+    let y = (-y * WIDTH as i32 + ((HEIGHT / 2) * WIDTH) as i32) as usize;
+    Some(z_buffer[y + x])
+}
+
 
 pub fn update_with_buffer(window: &mut Window, buffer: &WindowBuffer) {
     window

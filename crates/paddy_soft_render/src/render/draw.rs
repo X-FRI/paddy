@@ -103,6 +103,72 @@ pub fn triangle(
     }
 }
 
+/// 重心坐标法绘制\
+/// 支持z_buffer的三角形绘制\
+/// z_buffer 越小越近\
+/// #untested
+pub fn triangle_z<F>(
+    buffer: &mut WindowBuffer,
+    z_buffer: &mut ZBuffer,
+    a: Vector3<f64>,
+    b: Vector3<f64>,
+    c: Vector3<f64>,
+    color_f: F,
+) where F: Fn(Vector3<f64>) -> Color {
+    fn barycentric(
+        a: Vector3<f64>,
+        b: Vector3<f64>,
+        c: Vector3<f64>,
+        p: Vector3<f64>,
+    ) -> Vector3<f64> {
+        let mut s = vec![Vector3::new(0., 0., 0.), Vector3::new(0., 0., 0.)];
+        for i in (0usize..2).rev() {
+            s[i][0] = c[i] - a[i];
+            s[i][1] = b[i] - a[i];
+            s[i][2] = a[i] - p[i];
+        }
+        let u = nalgebra::base::Matrix::cross(&s[0], &s[1]);
+        if u.z.abs() > 1e-3 {
+            [1. - (u.x + u.y)/u.z, u.y / u.z, u.x / u.z].into()
+        } else {
+            [-1., 1., 1.].into()
+        }
+    }
+    let mut bboxmin = Vector2::new(f64::MAX, f64::MAX);
+    let mut bboxmax = Vector2::new(f64::MIN, f64::MIN);
+    let clamp = Vector2::new((WIDTH/2) as f64 - 2., (HEIGHT/2) as f64 - 2.);
+    let pts = vec![a, b, c];
+    for i in 0..3 {
+        for j in 0..2 {
+            bboxmin[j] = bboxmin[j].min(pts[i][j]);
+            bboxmax[j] = clamp[j].min(bboxmax[j].max(pts[i][j]));
+        }
+    }
+    let mut P = Vector3::new(bboxmin.x, bboxmin.y, 0.);
+    while P.x <= bboxmax.x {
+        while P.y <= bboxmax.y {
+            let bc_screen = barycentric(a, b, c, P);
+            if (bc_screen.x < 0. || bc_screen.y < 0. || bc_screen.z < 0.) {
+                P.y = P.y + 1.;
+                continue;
+            }
+            P.z = 0.;
+            for i in 0..3 {
+                P.z = P.z + (pts[i].z * bc_screen[i]);
+            }
+            match get_z_buffer(z_buffer, P.x.round() as i32, P.y.round() as i32) {
+                Some(v) if v > P.z => {
+                    set_z_buffer(z_buffer, P.x.round() as i32, P.y.round() as i32, P.z);
+                    draw::point(buffer, [P.x, P.y].into(),color_f(P));
+                },
+                _ => {},
+            }
+            P.y = P.y + 1.;
+        }
+        P.y = bboxmin.y;
+        P.x = P.x + 1.;
+    }
+}
 
 
 #[test]

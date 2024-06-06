@@ -29,15 +29,15 @@ impl Color {
             (a % 0x01_00_00_00u32) as u8,
         )
     }
-    pub fn mul(&mut self, rhs: f64) {
+    pub fn mul(&self, rhs: f64) -> Self{
         let a = self.get_rbg();
-        *self = Color::Custom2(
+        Color::Custom2(
             // (a.0 as f64 * rhs).round() as u8,
             a.0,//不对透明度做变动,虽然minifb对linux暂时不支持透明度,事实上我都不清楚 FF是透明还是00是透明
             (a.1 as f64 * rhs).round() as u8,
             (a.2 as f64 * rhs).round() as u8,
             (a.3 as f64 * rhs).round() as u8,
-        );
+        )
     }
 }
 

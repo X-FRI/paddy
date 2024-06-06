@@ -461,7 +461,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "paddy_render"
+name = "paddy_soft_render"
 version = "0.1.0-dev"
 dependencies = [
  "minifb",
@@ -899,9 +899,9 @@ dependencies = [
 
 [[package]]
 name = "wide"
-version = "0.7.22"
+version = "0.7.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c5cb32c74fe55350a3272ba792f050613e692253ae0d89ad5d83eb0dcea15e1"
+checksum = "1134eff459f1063780b94cc78b704e2212cac12abd554e4268f5b8f9dfcc1883"
 dependencies = [
  "bytemuck",
  "safe_arch",
