@@ -36,7 +36,7 @@ fn f(){
 |test  | 测试用例，包括单元测试、集成测试等 |
 |chore  | 改变构建流程、或者增加依赖库、工具等 |
 |revert  | 回滚到上一个版本 |
-|chaos |过于混乱,跳过<crate><scope>,直接写<subject> |
+|chaos |过于混乱,跳过\<crate\>\<scope\>,直接写\<subject\> |
 
 ## \<crate\>
 声明影响的crate\
