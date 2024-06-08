@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "paddy_esc"
+name = "paddy_ecs"
 version = "0.1.0"
