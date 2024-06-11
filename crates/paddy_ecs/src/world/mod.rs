@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::entity::{Entity, EntityBuilder};
+use crate::entity::{Entities, Entity, EntityBuilder};
 
 #[derive(Debug)]
 struct WorldId(u32);
@@ -11,7 +11,7 @@ static WORLD_ID: AtomicU32 = AtomicU32::new(0);
 impl WorldId {
     /// 在整个软件系统中,创建一个唯一的ID
     /// 
-    pub fn new() -> Option<Self> {
+    pub fn next() -> Option<Self> {
         WORLD_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
             .map(|v| WorldId(v))
@@ -25,13 +25,18 @@ type EntityAdmin = World;
 #[derive(Debug)]
 pub(crate) struct World {
     world_id: WorldId,
-    archetype : Archetype
+    entities: Entities,
+
+    // archetype : Archetype
 }
 
 impl World {
     /// 创建一个World
     pub fn create_world() -> Self {
-        todo!();
+        Self {
+            world_id:WorldId::next().unwrap(),
+            entities:Entities::new(),
+        }
     }
 
     /// 在当前World中,创建一个 Entity \
@@ -40,13 +45,6 @@ impl World {
         todo!()
     }
 }
-
-
-/// 一种Entity的组件类型集合
-/// Archetype 表示一种实体类型
-/// #wait
-#[derive(Debug)]
-struct Archetype();
 
 
 

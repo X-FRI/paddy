@@ -2,6 +2,15 @@
 
 # Label 
 
+| label| |
+|--|--|
+|untested| 为经过测试的|
+|todo |未完成的|
+|wait |等待编写中的(往往占名时用)|
+|safety| 安全的(在使用unsafe代码后,若可以保证安全,则使用这个进行标记)|
+|plan |声明未来的计划 |
+
+
 ## for fn
 
 ```rust
@@ -11,12 +20,6 @@ fn f(){
 
 }
 ```
-
-| label| |
-|--|--|
-|untested| 为经过测试的函数|
-|todo |未完成的函数|
-|wait |等待编写中的函数(往往占名时用)|
 
 
 
@@ -37,6 +40,8 @@ fn f(){
 |chore  | 改变构建流程、或者增加依赖库、工具等 |
 |revert  | 回滚到上一个版本 |
 |chaos |过于混乱,跳过\<crate\>\<scope\>,直接写\<subject\> |
+|release |发布一个版本,跳过\<scope\>; \<subject\> 为版本号 |
+
 
 ## \<crate\>
 声明影响的crate\

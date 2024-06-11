@@ -1,7 +1,16 @@
+use std::any::{Any, TypeId};
 
 
 
+pub(crate) type ComponentId = TypeId;
 
-trait Component {
+/// 组件必须实现的trait
+/// #todo
+trait Component : Any + Send + Sync + 'static{
     
 }
+
+
+
+
+
