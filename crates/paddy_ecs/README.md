@@ -9,6 +9,7 @@ paddy的ESC架构系统
 
 当前的实现方式是 Archetypes (aka "Dense ECS" or "Table based ECS")
 
+雏形 主要参考 hecs,bevy_ecs
 
 ## 第二步(增加特性)
 第一步完成后,开始慢慢增加特性,研究其他库的源码,偷些喜欢的特性来用
