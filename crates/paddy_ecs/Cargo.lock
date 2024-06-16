@@ -5,3 +5,10 @@ version = 3
 [[package]]
 name = "paddy_ecs"
 version = "0.1.0"
+dependencies = [
+ "paddy_ptr",
+]
+
+[[package]]
+name = "paddy_ptr"
+version = "0.1.0"

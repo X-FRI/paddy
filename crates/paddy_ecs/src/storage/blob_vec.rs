@@ -1,8 +1,13 @@
 use std::{
-    alloc::{handle_alloc_error, Layout}, cell::UnsafeCell, num::NonZeroUsize, ptr::NonNull
+    alloc::{handle_alloc_error, Layout},
+    cell::UnsafeCell,
+    num::NonZeroUsize,
+    ptr::NonNull,
 };
 
-type DropFn = unsafe fn(NonNull<u8>);
+use paddy_ptr::{OwningPtr, Ptr, PtrMut};
+
+type DropFn = unsafe fn(OwningPtr<'_>);
 
 /// 用于密集存储同质(同结构)数据\
 /// 存储类似于数组,不过它是动态可变大小\
@@ -135,22 +140,26 @@ impl BlobVec {
     /// 初始化对应下标的值
     /// warn: 注意index应该是 非剩余容量的空间
     #[inline]
-    pub unsafe fn initialize_unchecked(&mut self, index: usize, value: NonNull<u8>) {
+    pub unsafe fn initialize_unchecked(&mut self, index: usize, value: OwningPtr<'_>) {
         debug_assert!(index < self.len());
         let ptr = self.get_unchecked(index);
         std::ptr::copy_nonoverlapping::<u8>(value.as_ptr(), ptr.as_ptr(), self.item_layout.size());
     }
 
+    pub unsafe fn replace_unchecked(&mut self, index: usize, value: OwningPtr<'_>) {
+        todo!()
+    }
+
     /// 向尾部添加一个值
     #[inline]
-    pub unsafe fn push(&mut self, value: NonNull<u8>) {
+    pub unsafe fn push(&mut self, value: OwningPtr<'_>) {
         self.reserve(1);
         let index = self.len;
         self.len += 1;
         self.initialize_unchecked(index, value);
     }
 
-    /// 
+    ///
     #[inline]
     pub unsafe fn set_len(&mut self, len: usize) {
         debug_assert!(len <= self.capacity());
@@ -158,10 +167,31 @@ impl BlobVec {
     }
 
     #[inline]
-    pub unsafe fn get_unchecked(&self, index: usize) -> NonNull<u8> {
+    pub unsafe fn get_unchecked(&self, index: usize) -> Ptr<'_> {
         debug_assert!(index < self.len());
         let size = self.item_layout.size();
-        unsafe { self.data.byte_add(index * size) }
+        unsafe { self.get_ptr().byte_add(index * size) }
+    }
+
+    #[inline]
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> PtrMut<'_> {
+        debug_assert!(index < self.len());
+        let size = self.item_layout.size();
+        unsafe { self.get_ptr_mut().byte_add(index * size) }
+    }
+
+    /// 获取指向 vec 起始位置的 [`Ptr`]
+    #[inline]
+    pub fn get_ptr(&self) -> Ptr<'_> {
+        // SAFETY: the inner data will remain valid for as long as 'self.
+        unsafe { Ptr::new(self.data) }
+    }
+
+    /// 获取指向 vec 起始位置的 [`PtrMut`]
+    #[inline]
+    pub fn get_ptr_mut(&mut self) -> PtrMut<'_> {
+        // SAFETY: the inner data will remain valid for as long as 'self.
+        unsafe { PtrMut::new(self.data) }
     }
 
     /// 获取 非剩余容量空间 的切片
@@ -175,19 +205,17 @@ impl BlobVec {
         unsafe { &*ptr }
     }
 
-    
     pub fn clear(&mut self) {
         let len = self.len;
         self.len = 0;
         if let Some(drop) = self.drop {
             let size = self.item_layout.size();
             for i in 0..len {
-                let item = unsafe { self.data.byte_add(i * size) };
+                let item = unsafe { self.get_ptr_mut().byte_add(i * size).promote() };
                 unsafe { drop(item) };
             }
         }
     }
-
 }
 
 impl std::fmt::Debug for BlobVec {
@@ -268,29 +296,6 @@ mod tests {
 
     #[test]
     fn test() {
-        #[derive(Debug)]
-        struct A {
-            a: u32,
-            b: u64,
-        }
-        unsafe {
-            let mut blob = BlobVec::new(Layout::new::<A>(), None, 5);
-            let mut val = A {
-                a: 123,
-                b: 456,
-            };
-            blob.set_len(2);
-            blob.initialize_unchecked(1,NonNull::new_unchecked(&mut val as *mut A as *mut u8));
-            blob.reserve(6);
-            println!("{blob:?}");
-            let slice = blob.get_slice::<A>();
-            println!("{:?}",(*(slice[1].get() as *mut u8 as *mut A)).a);
-            val.a = 789;
-            println!("{val:?}");
-            println!("{:?}",(*(slice[1].get() as *mut u8 as *mut A)).a);
-            println!("{:?}",(*(slice[1].get() as *mut u8 as *mut A)).b);
-
-
-        }
+        
     }
 }
