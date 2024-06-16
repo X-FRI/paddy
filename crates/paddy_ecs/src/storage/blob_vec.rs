@@ -8,7 +8,7 @@ type DropFn = unsafe fn(NonNull<u8>);
 /// 存储类似于数组,不过它是动态可变大小\
 /// item_layout = Layout::new::\<T\>()\
 /// \[T;capacity\]
-pub(super) struct BlobVec {
+pub(crate) struct BlobVec {
     /// 元素的内存布局
     item_layout: Layout,
     /// 容量:可容纳的元素 数量
@@ -83,7 +83,7 @@ impl BlobVec {
     /// 将剩余容量扩展到 max{ additional , capacity + 剩余容量 } 大小\
     /// 若 剩余容量>=additional 则 啥也不做
     ///
-    /// 不太理解这个函数的作用...
+    /// 不太理解这个函数的作用... (可能单纯是用于扩充大量容量吧)
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
         // 写一个内部函数 似乎是 bevy_ecs 的一种优化 (看不懂...)
@@ -132,6 +132,8 @@ impl BlobVec {
         self.capacity = new_capacity;
     }
 
+    /// 初始化对应下标的值
+    /// warn: 注意index应该是 非剩余容量的空间
     #[inline]
     pub unsafe fn initialize_unchecked(&mut self, index: usize, value: NonNull<u8>) {
         debug_assert!(index < self.len());
@@ -139,6 +141,7 @@ impl BlobVec {
         std::ptr::copy_nonoverlapping::<u8>(value.as_ptr(), ptr.as_ptr(), self.item_layout.size());
     }
 
+    /// 向尾部添加一个值
     #[inline]
     pub unsafe fn push(&mut self, value: NonNull<u8>) {
         self.reserve(1);
@@ -147,6 +150,7 @@ impl BlobVec {
         self.initialize_unchecked(index, value);
     }
 
+    /// 
     #[inline]
     pub unsafe fn set_len(&mut self, len: usize) {
         debug_assert!(len <= self.capacity());
@@ -160,9 +164,28 @@ impl BlobVec {
         unsafe { self.data.byte_add(index * size) }
     }
 
+    /// 获取 非剩余容量空间 的切片
     pub unsafe fn get_slice<T>(&self) -> &[UnsafeCell<T>] {
-        // SAFETY: the inner data will remain valid for as long as 'self.
         unsafe { std::slice::from_raw_parts(self.data.as_ptr() as *const UnsafeCell<T>, self.len) }
+    }
+
+    #[inline]
+    pub unsafe fn deref<T>(&self, index: usize) -> &T {
+        let ptr = self.get_unchecked(index).as_ptr().cast::<T>();
+        unsafe { &*ptr }
+    }
+
+    
+    pub fn clear(&mut self) {
+        let len = self.len;
+        self.len = 0;
+        if let Some(drop) = self.drop {
+            let size = self.item_layout.size();
+            for i in 0..len {
+                let item = unsafe { self.data.byte_add(i * size) };
+                unsafe { drop(item) };
+            }
+        }
     }
 
 }
@@ -245,6 +268,7 @@ mod tests {
 
     #[test]
     fn test() {
+        #[derive(Debug)]
         struct A {
             a: u32,
             b: u64,
@@ -262,6 +286,7 @@ mod tests {
             let slice = blob.get_slice::<A>();
             println!("{:?}",(*(slice[1].get() as *mut u8 as *mut A)).a);
             val.a = 789;
+            println!("{val:?}");
             println!("{:?}",(*(slice[1].get() as *mut u8 as *mut A)).a);
             println!("{:?}",(*(slice[1].get() as *mut u8 as *mut A)).b);
 

@@ -246,6 +246,7 @@ impl EntityMeta {
 }
 
 /// 实体在原型中的位置
+/// #todo : 适应Table
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct EntityLocation {
     /// 原型索引

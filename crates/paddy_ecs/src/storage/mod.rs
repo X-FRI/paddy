@@ -1,3 +1,3 @@
 
 
-mod blob_vec;
+pub(crate) mod blob_vec;
