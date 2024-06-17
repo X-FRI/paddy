@@ -229,6 +229,20 @@ impl std::fmt::Debug for BlobVec {
     }
 }
 
+impl Drop for BlobVec {
+    fn drop(&mut self) {
+        self.clear();
+        let array_layout =
+            array_layout(&self.item_layout, self.capacity).expect("array layout should be valid");
+        if array_layout.size() > 0 {
+            // SAFETY: data ptr layout is correct, swap_scratch ptr layout is correct
+            unsafe {
+                std::alloc::dealloc(self.get_ptr_mut().as_ptr(), array_layout);
+            }
+        }
+    }
+}
+
 /// layout = Layout::new::\<T\>()\
 /// 创建一个布局，描述 `[T; n]` 的记录。
 fn array_layout(layout: &Layout, n: usize) -> Option<Layout> {

@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::entity::{Entities, Entity, EntityBuilder};
+use crate::{component::Components, entity::{Entities, Entity, EntityBuilder}};
 
 #[derive(Debug)]
 struct WorldId(u32);
@@ -26,6 +26,7 @@ type EntityAdmin = World;
 pub(crate) struct World {
     world_id: WorldId,
     entities: Entities,
+    components: Components,
 
     // archetype : Archetype
 }
@@ -34,10 +35,6 @@ impl World {
     /// 创建一个World
     pub fn create_world() -> Self {
         todo!();
-        Self {
-            world_id:WorldId::next().unwrap(),
-            entities:Entities::new(),
-        }
     }
 
     /// 在当前World中,创建一个 Entity \
