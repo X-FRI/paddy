@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::{component::Components, entity::{Entities, Entity, EntityBuilder}};
+use crate::{component::Components, entity::{Entities, Entity, EntityBuilder}, storage::Storages};
 
 #[derive(Debug)]
 struct WorldId(u32);
@@ -27,7 +27,7 @@ pub(crate) struct World {
     world_id: WorldId,
     entities: Entities,
     components: Components,
-
+    storages: Storages,
     // archetype : Archetype
 }
 

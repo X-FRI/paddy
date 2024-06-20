@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 paddy_ptr = { path = "../paddy_ptr" }
+paddy_utils = { path = "../paddy_utils" }
 

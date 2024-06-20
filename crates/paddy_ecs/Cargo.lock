@@ -7,8 +7,13 @@ name = "paddy_ecs"
 version = "0.1.0"
 dependencies = [
  "paddy_ptr",
+ "paddy_utils",
 ]
 
 [[package]]
 name = "paddy_ptr"
+version = "0.1.0"
+
+[[package]]
+name = "paddy_utils"
 version = "0.1.0"

@@ -6,6 +6,7 @@ use std::{
 };
 
 use paddy_ptr::{OwningPtr, Ptr, PtrMut};
+use paddy_utils::OnDrop;
 
 type DropFn = unsafe fn(OwningPtr<'_>);
 
@@ -138,7 +139,10 @@ impl BlobVec {
     }
 
     /// 初始化对应下标的值
-    /// warn: 注意index应该是 非剩余容量的空间
+    ///
+    /// # Note
+    /// - 注意index应该在 非剩余容量的空间 内
+    /// - @`value` 应该指向被擦出类型前的类型
     #[inline]
     pub unsafe fn initialize_unchecked(&mut self, index: usize, value: OwningPtr<'_>) {
         debug_assert!(index < self.len());
@@ -146,8 +150,71 @@ impl BlobVec {
         std::ptr::copy_nonoverlapping::<u8>(value.as_ptr(), ptr.as_ptr(), self.item_layout.size());
     }
 
+    /// 将 `index` 位置的值替换为 `value`
+    ///
+    /// # Safety
+    /// - `index` 必须在有效范围内
+    /// - 从 `index` 开始的 [`BlobVec`] 内存块，且大小与此 [`BlobVec`] 的 `item_layout` 匹配，
+    ///   必须已经被初始化为一个与此 [`BlobVec`] 的 `item_layout` 匹配的项
+    /// - `*value` 所指向的内存也必须已初始化为一个与此 [`BlobVec`] 的 `item_layout` 匹配的项
+    ///
+    /// # Note
+    /// - 此函数不会进行边界检查
+    ///
     pub unsafe fn replace_unchecked(&mut self, index: usize, value: OwningPtr<'_>) {
-        todo!()
+        debug_assert!(index < self.len());
+
+        // 获取将被替换的 vec 中的值的指针
+        // SAFETY: The caller ensures that `index` fits in this vector.
+        let destination = NonNull::from(unsafe { self.get_unchecked_mut(index) });
+        let source = value.as_ptr();
+
+        if let Some(drop) = self.drop {
+            // 临时将长度设置为0，这样如果`drop`发生panic，
+            // 调用者不会因为`BlobVec`中有一个已被释放的元素在其初始化范围内而陷入困境
+            let old_len = self.len;
+            self.len = 0;
+
+            // 从vec中移除旧值的所有权，以便可以将其释放
+            // SAFETY:
+            // - `destination`是从该vec中的`PtrMut`获取的，这确保它是非空的，
+            //   对底层类型对齐，并具有适当的来源
+            // - 存储位置稍后将被`value`覆盖，这确保了
+            //   元素不会被观察到或重复释放
+            // - 如果发生panic，`self.len`将保持为`0`，这确保了不会发生重复释放,
+            //   相反，所有元素都将被忘记
+            let old_value = unsafe { OwningPtr::new(destination) };
+
+            // 这个闭包将在`drop()`发生panic时运行，
+            // 这确保了`value`不会被忘记
+            let on_unwind = OnDrop::new(|| drop(value));
+
+            drop(old_value);
+
+            // 如果上面的代码没有panic，确保`value`不会被释放
+            core::mem::forget(on_unwind);
+
+            // 由于panic不再可能，使vec的内容重新可见
+            self.len = old_len;
+        }
+
+        // 将新值复制到vec中，覆盖先前的值
+        // SAFETY:
+        // - `source`和`destination`是从`OwningPtr`获得的，这确保了它们
+        //   对读取和写入都是有效的
+        // - The value behind `source` will only be dropped if the above branch panics,
+        //   so it must still be initialized and it is safe to transfer ownership into the vector.\
+        //   如果上述分支恐慌，`source`后面的值只会被释放，
+        //   因此它必须仍然被初始化，并且可以安全地将所有权转移到向量中
+        // - `source`和`destination`是从不同的内存位置获得的，
+        //   我们对这些位置都有独占访问权，因此它们保证不会重叠
+        unsafe {
+            std::ptr::copy_nonoverlapping::<u8>(
+                source,
+                destination.as_ptr(),
+                self.item_layout.size(),
+            );
+        }
     }
 
     /// 向尾部添加一个值
@@ -199,12 +266,14 @@ impl BlobVec {
         unsafe { std::slice::from_raw_parts(self.data.as_ptr() as *const UnsafeCell<T>, self.len) }
     }
 
+    /// #plan : remove the function
     #[inline]
-    pub unsafe fn deref<T>(&self, index: usize) -> &T {
+    unsafe fn deref<T>(&self, index: usize) -> &T {
         let ptr = self.get_unchecked(index).as_ptr().cast::<T>();
         unsafe { &*ptr }
     }
 
+    /// 释放所有元素数据,但容量不变
     pub fn clear(&mut self) {
         let len = self.len;
         self.len = 0;
@@ -309,7 +378,5 @@ mod tests {
     use super::BlobVec;
 
     #[test]
-    fn test() {
-        
-    }
+    fn test() {}
 }

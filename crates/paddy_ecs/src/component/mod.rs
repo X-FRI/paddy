@@ -62,7 +62,7 @@ impl Components {
     }
 
     /// 获取与给定组件相关联的元信息
-    /// 
+    ///
     /// 如果 `id` 并非来自与 `self` 相同的World, 可能返回 `None` 或 错误值(其他World中的[`ComponentInfo`])
     #[inline]
     pub fn get_info(&self, id: ComponentId) -> Option<&ComponentInfo> {
@@ -80,7 +80,7 @@ impl Components {
     /// 获取与给定组件相关联的元数据
     /// # Safety
     /// - `id` 必须是一个有效的 [`ComponentId`]
-    /// 
+    ///
     #[inline]
     pub unsafe fn get_info_unchecked(&self, id: ComponentId) -> &ComponentInfo {
         debug_assert!(id.id() < self.components.len());
@@ -99,7 +99,7 @@ impl Components {
     }
 
     /// 初始化`T`类型的组件
-    /// 
+    ///
     /// @return 如果该类型的组件已经被初始化过，那么此方法会返回之前已经存在的 ComponentId
     #[inline]
     pub fn init_component<T: Component>(&mut self) -> ComponentId {
@@ -110,10 +110,8 @@ impl Components {
             ..
         } = self;
         *indices.entry(type_id).or_insert_with(|| {
-            let index = Components::init_component_inner(
-                components,
-                ComponentDescriptor::new::<T>(),
-            );
+            let index =
+                Components::init_component_inner(components, ComponentDescriptor::new::<T>());
             index
         })
     }
@@ -139,17 +137,14 @@ impl Components {
     ) -> ComponentId {
         let component_id = ComponentId(components.len());
         let info = ComponentInfo::new(component_id, descriptor);
-        
+
         components.push(info);
         component_id
     }
 
-
     pub fn iter(&self) -> impl Iterator<Item = &ComponentInfo> + '_ {
         self.components.iter()
     }
-
-
 }
 
 /// 存储Component类型的信息
@@ -184,14 +179,9 @@ impl ComponentInfo {
     }
 
     pub(crate) fn new(id: ComponentId, descriptor: ComponentDescriptor) -> Self {
-        ComponentInfo {
-            id,
-            descriptor,
-        }
+        ComponentInfo { id, descriptor }
     }
-
 }
-
 
 /// 用于描述组件或资源的元信息，它可能不对应 Rust 类型
 #[derive(Clone)]
