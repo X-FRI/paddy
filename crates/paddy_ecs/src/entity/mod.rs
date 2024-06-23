@@ -6,6 +6,9 @@ use std::{
     sync::atomic::{AtomicIsize, Ordering},
 };
 
+use archetype::{ArchetypeId, ArchetypeRow};
+use table::{TableId, TableRow};
+
 use crate::world::World;
 
 pub(crate) mod archetype;
@@ -156,7 +159,7 @@ impl Entities {
             .meta
             .get_mut(entity.entity_id as usize)
             .ok_or(NoSuchEntity)?;
-        if meta.generation != entity.generation || meta.location.index == u32::MAX {
+        if meta.generation != entity.generation || meta.location == EntityMeta::EMPTY.location {
             return Err(NoSuchEntity);
         }
 
@@ -219,6 +222,7 @@ impl Entities {
     pub fn len(&self) -> u32 {
         self.len
     }
+
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
@@ -234,25 +238,31 @@ impl EntityMeta {
     /// 表示一个未初始化或无效的实体元数据
     /// 为了 待处理实体的meta 而存在
     pub(crate) const EMPTY: EntityMeta = EntityMeta {
-        generation: match NonZeroU32::new(1) {
-            Some(x) => x,
-            None => unreachable!(),
-        },
-        location: EntityLocation {
-            archetype: 0,
-            index: u32::max_value(), //表示一个无效或未定义的位置
-        },
+        generation: NonZeroU32::MIN,
+        location: EntityLocation::INVALID
     };
 }
 
-/// 实体在原型中的位置
-/// #todo : 适应Table
-#[derive(Debug, Copy, Clone)]
+/// Entity 的位置
+///
+/// 包括 Archetype和Table的位置,
+/// Archetype声明 Entity包含的Component,
+/// Table存储Entity这种Component的实际数据
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) struct EntityLocation {
-    /// 原型索引
-    pub(crate) archetype: u32,
-    /// 原型中实体的索引
-    pub(crate) index: u32,
+    pub archetype_id: ArchetypeId,
+    pub archetype_row: ArchetypeRow,
+    pub table_id: TableId,
+    pub table_row: TableRow,
+}
+impl EntityLocation {
+    /// **待定实体**和**无效实体**的位置
+    const INVALID: EntityLocation = EntityLocation {
+        archetype_id: ArchetypeId::INVALID,
+        archetype_row: ArchetypeRow::INVALID,
+        table_id: TableId::INVALID,
+        table_row: TableRow::INVALID,
+    };
 }
 
 /// 当前结构表示 不存在具有特定 id 的 live Entity (往往是因为 generation 不同导致的)

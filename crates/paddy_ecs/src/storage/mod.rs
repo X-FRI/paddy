@@ -7,3 +7,10 @@ pub(crate) mod blob_vec;
 pub struct Storages {
     pub tables: Tables,
 }
+
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
+pub enum StorageType {
+    #[default]
+    Table,
+    SparseSet,
+}

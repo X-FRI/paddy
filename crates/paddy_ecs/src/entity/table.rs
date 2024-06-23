@@ -15,7 +15,7 @@ use crate::{
 use super::Entity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TableId(u32);
+pub(crate) struct TableId(u32);
 
 impl TableId {
     /// 无效的TableId
@@ -49,7 +49,7 @@ impl TableId {
 
 /// 表示Table中的一行
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TableRow(u32);
+pub(crate) struct TableRow(u32);
 
 impl TableRow {
     /// 无效的TableRow
@@ -212,7 +212,7 @@ impl Column {
 ///
 ///
 #[derive(Debug)]
-struct Table {
+pub(crate) struct Table {
     /// #note : 你在任何情况都不应该添加key或删除key, Table被构造后就是对应于固定的原型
     columns: HashMap<ComponentId, Column>,
     /// 存储在当前Table的Entity

@@ -3,13 +3,13 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::{component::Components, entity::{Entities, Entity, EntityBuilder}, storage::Storages};
+use crate::{bundle::Bundles, component::Components, entity::{archetype::Archetypes, Entities, Entity, EntityBuilder}, storage::Storages};
 
 #[derive(Debug)]
 struct WorldId(u32);
 static WORLD_ID: AtomicU32 = AtomicU32::new(0);
 impl WorldId {
-    /// 在整个软件系统中,创建一个唯一的ID
+    /// 在整个软件系统中,创建一个唯一的World ID
     /// 
     pub fn next() -> Option<Self> {
         WORLD_ID
@@ -28,7 +28,8 @@ pub(crate) struct World {
     entities: Entities,
     components: Components,
     storages: Storages,
-    // archetype : Archetype
+    archetypes : Archetypes,
+    bundles: Bundles,
 }
 
 impl World {
