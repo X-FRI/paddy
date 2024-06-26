@@ -7,3 +7,4 @@ edition = "2021"
 paddy_ptr = { path = "../paddy_ptr" }
 paddy_utils = { path = "../paddy_utils" }
 
+nonmax = "0.5.5"

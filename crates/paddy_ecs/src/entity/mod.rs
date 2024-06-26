@@ -9,10 +9,10 @@ use std::{
 use archetype::{ArchetypeId, ArchetypeRow};
 use table::{TableId, TableRow};
 
-use crate::world::World;
+use crate::{storage::table, world::World};
 
 pub(crate) mod archetype;
-pub(crate) mod table;
+
 
 pub(crate) type EntityId = u32;
 /// Id 重分配后 标识于前Entity的不同

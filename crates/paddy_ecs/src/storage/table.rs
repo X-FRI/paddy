@@ -12,7 +12,7 @@ use crate::{
     storage::blob_vec::BlobVec,
 };
 
-use super::Entity;
+use crate::entity::Entity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TableId(u32);
@@ -83,7 +83,7 @@ impl TableRow {
 /// 从概念上讲，[`Column`] 非常类似于一个类型擦除的 `Vec<T>`
 ///
 #[derive(Debug)]
-struct Column {
+pub(crate) struct Column {
     data: BlobVec,
 }
 

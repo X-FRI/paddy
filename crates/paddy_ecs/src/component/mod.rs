@@ -1,13 +1,10 @@
 use std::{
-    alloc::Layout,
-    any::{Any, TypeId},
-    borrow::Cow,
-    collections::HashMap,
-    mem::needs_drop,
-    ptr::NonNull,
+    alloc::Layout, any::{Any, TypeId}, borrow::Cow, collections::HashMap, fmt::Debug, mem::needs_drop, ptr::NonNull
 };
 
 use paddy_ptr::OwningPtr;
+
+use crate::storage::StorageType;
 
 /// 用于唯一标识 [`World`] 中某个 [`Component`] 或 [`Resource`] ,便于跟踪组件或资源
 ///
@@ -36,7 +33,18 @@ impl ComponentId {
 }
 
 /// 组件必须实现的trait
-pub trait Component: Any + Send + Sync + 'static {}
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a `Component`",
+    label = "invalid `Component`",
+    note = "consider annotating `{Self}` with `#[derive(Component)]`"
+)]
+pub trait Component: Any + Send + Sync + 'static {
+    
+    const STORAGE_TYPE: StorageType;
+
+}
+
+
 
 /// 在对应World中,用于管理和存储所有注册的组件类型的元信息
 ///

@@ -1,6 +1,9 @@
-use crate::entity::table::Tables;
+use table::Tables;
+
 
 pub(crate) mod blob_vec;
+pub(crate) mod table;
+pub(crate) mod sparse_set;
 
 /// 用于 [`World`](crate::world::World) 的原始数据存储
 #[derive(Debug)]
