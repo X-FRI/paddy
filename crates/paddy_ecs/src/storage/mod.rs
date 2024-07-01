@@ -1,3 +1,4 @@
+use sparse_set::SparseSets;
 use table::Tables;
 
 
@@ -9,6 +10,7 @@ pub(crate) mod sparse_set;
 #[derive(Debug)]
 pub struct Storages {
     pub tables: Tables,
+    pub sparse_sets: SparseSets,
 }
 
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]

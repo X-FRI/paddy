@@ -4,7 +4,7 @@
 
 
 
-
+mod debug;
 mod world;
 mod entity;
 mod component;
@@ -13,3 +13,4 @@ mod borrow;
 mod storage;
 mod bundle;
 mod query;
+mod _todo;

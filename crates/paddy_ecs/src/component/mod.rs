@@ -6,6 +6,8 @@ use paddy_ptr::OwningPtr;
 
 use crate::storage::StorageType;
 
+pub mod tick;
+
 /// 用于唯一标识 [`World`] 中某个 [`Component`] 或 [`Resource`] ,便于跟踪组件或资源
 ///
 /// `World` 中可能还会存在其他 `ComponentId` 来跟踪那些无法表示为 Rust 类型的组件, 所以`ComponentId`不应该单纯使用[`TypeId`]
@@ -195,6 +197,7 @@ impl ComponentInfo {
 #[derive(Clone)]
 pub struct ComponentDescriptor {
     name: Cow<'static, str>,
+    storage_type: StorageType,
     type_id: Option<TypeId>,
     layout: Layout,
     drop: Option<for<'a> unsafe fn(OwningPtr<'a>)>,
@@ -227,6 +230,7 @@ impl ComponentDescriptor {
     pub fn new<T: Component>() -> Self {
         Self {
             name: Cow::Borrowed(std::any::type_name::<T>()),
+            storage_type: T::STORAGE_TYPE,
             type_id: Some(TypeId::of::<T>()),
             layout: Layout::new::<T>(),
             drop: needs_drop::<T>().then_some(Self::drop_ptr::<T> as _),

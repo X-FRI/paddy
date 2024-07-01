@@ -1,5 +1,6 @@
 use std::{
     alloc::Layout,
+    cell::UnsafeCell,
     collections::HashMap,
     ops::{Index, IndexMut},
     ptr::NonNull,
@@ -8,12 +9,16 @@ use std::{
 use paddy_ptr::{OwningPtr, Ptr, PtrMut};
 
 use crate::{
-    component::{ComponentId, ComponentInfo},
+    component::{
+        tick::{ComponentTicks, Tick},
+        ComponentId, ComponentInfo,
+    },
     storage::blob_vec::BlobVec,
 };
 
 use crate::entity::Entity;
 
+/// 在一个World中唯一的Table id (多World中不唯一)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TableId(u32);
 
@@ -85,6 +90,8 @@ impl TableRow {
 #[derive(Debug)]
 pub(crate) struct Column {
     data: BlobVec,
+    added_ticks: Vec<UnsafeCell<Tick>>,
+    changed_ticks: Vec<UnsafeCell<Tick>>,
 }
 
 impl Column {
@@ -103,10 +110,21 @@ impl Column {
 
     /// 构造一个新的 [`Column`]，它配置了组件的布局并具有初始的容量(`capacity`)
     #[inline]
-    pub(crate) fn with_capacity(component_info: &ComponentInfo, capacity: usize) -> Self {
+    pub(crate) fn with_capacity(
+        component_info: &ComponentInfo,
+        capacity: usize,
+    ) -> Self {
         Column {
             // SAFETY: component_info.drop() is valid for the types that will be inserted.
-            data: unsafe { BlobVec::new(component_info.layout(), component_info.drop(), capacity) },
+            data: unsafe {
+                BlobVec::new(
+                    component_info.layout(),
+                    component_info.drop(),
+                    capacity,
+                )
+            },
+            added_ticks: Vec::with_capacity(capacity),
+            changed_ticks: Vec::with_capacity(capacity),
         }
     }
 
@@ -119,9 +137,19 @@ impl Column {
     /// - 假设数据已经为指定的行分配好了空间
     /// - @`data` 需是指向正确的类型(被类型擦出前的类型)
     #[inline]
-    pub(crate) unsafe fn initialize(&mut self, row: TableRow, data: OwningPtr<'_>) {
+    pub(crate) unsafe fn initialize(
+        &mut self,
+        row: TableRow,
+        data: OwningPtr<'_>,
+        tick: Tick,
+    ) {
         debug_assert!(row.as_usize() < self.len());
         self.data.initialize_unchecked(row.as_usize(), data);
+        *self.added_ticks.get_unchecked_mut(row.as_usize()).get_mut() = tick;
+        *self
+            .changed_ticks
+            .get_unchecked_mut(row.as_usize())
+            .get_mut() = tick;
     }
 
     /// 将组件数据写入指定行的列中 (用于覆盖数据)
@@ -132,17 +160,32 @@ impl Column {
     /// - 假设数据已经为指定的行分配好了空间
     /// - @`data` 需是指向正确的类型(被类型擦出前的类型)
     #[inline]
-    pub(crate) unsafe fn replace(&mut self, row: TableRow, data: OwningPtr<'_>) {
+    pub(crate) unsafe fn replace(
+        &mut self,
+        row: TableRow,
+        data: OwningPtr<'_>,
+        change_tick: Tick
+    ) {
         debug_assert!(row.as_usize() < self.len());
         self.data.replace_unchecked(row.as_usize(), data);
+        *self
+            .changed_ticks
+            .get_unchecked_mut(row.as_usize())
+            .get_mut() = change_tick;
     }
 
     /// 将一个新值添加到此 [`Column`] 的末尾
     ///
     /// # Safety
     /// `ptr` 必须指向此列的 组件类型 的有效数据
-    pub(crate) unsafe fn push(&mut self, ptr: OwningPtr<'_>) {
+    pub(crate) unsafe fn push(
+        &mut self,
+        ptr: OwningPtr<'_>,
+        ticks: ComponentTicks,
+    ) {
         self.data.push(ptr);
+        self.added_ticks.push(UnsafeCell::new(ticks.added));
+        self.changed_ticks.push(UnsafeCell::new(ticks.changed));
     }
 
     /// 将剩余容量扩展到 additional 大小\
@@ -150,6 +193,8 @@ impl Column {
     #[inline]
     pub(crate) fn reserve_exact(&mut self, additional: usize) {
         self.data.reserve_exact(additional);
+        self.added_ticks.reserve_exact(additional);
+        self.changed_ticks.reserve_exact(additional);
     }
 
     /// 获取 `row` 行的数据的只读引用
@@ -188,11 +233,66 @@ impl Column {
         })
     }
 
+    /// Fetches the slice to the [`Column`]'s data cast to a given type.
+    ///
+    /// Note: The values stored within are [`UnsafeCell`].
+    /// Users of this API must ensure that accesses to each individual element
+    /// adhere to the safety invariants of [`UnsafeCell`].
+    ///
+    /// # Safety
+    /// The type `T` must be the type of the items in this column.
+    pub unsafe fn get_data_slice<T>(&self) -> &[UnsafeCell<T>] {
+        self.data.get_slice()
+    }
+
+    /// 从 [`Column`] 中移除一个元素
+    ///
+    /// # Note
+    /// - 如果该值实现了 [`Drop`]，它将被释放
+    /// - 这个操作不保证元素的顺序，但它是 O(1) 复杂度的操作
+    /// - 这个操作不会进行边界检查
+    /// - 被移除的元素将由 [`Column`] 中的最后一个元素替换
+    ///
+    /// # Safety
+    /// `row` 必须在范围 `[0, self.len())` 之内
+    ///
+    #[inline]
+    pub(crate) unsafe fn swap_remove_unchecked(&mut self, row: TableRow) {
+        self.data.swap_remove_and_drop_unchecked(row.as_usize());
+        self.added_ticks.swap_remove(row.as_usize());
+        self.changed_ticks.swap_remove(row.as_usize());
+    }
+
+    /// 从 [`Column`] 中移除一个元素，并返回它和它的变更检测计时信息(暂时不打算加入Tick,未来可能加入,所以文档不变)
+    /// 这个操作不保证元素的顺序，但它是 O(1) 复杂度的操作，并且不会进行边界检查
+    ///
+    /// 被移除的元素将由 [`Column`] 中的最后一个元素替换
+    ///
+    /// 调用者有责任确保被移除的值被释放或使用
+    /// 如果不这样做，可能会导致资源未被释放（例如，文件句柄未被释放，内存泄漏等）
+    ///
+    /// # Safety
+    /// `row` 必须在范围 `[0, self.len())` 之内
+    #[inline]
+    #[must_use = "The returned pointer should be used to dropped the removed component"]
+    pub(crate) unsafe fn swap_remove_and_forget_unchecked(
+        &mut self,
+        row: TableRow,
+    ) -> (OwningPtr<'_>, ComponentTicks) {
+        let data = self.data.swap_remove_and_forget_unchecked(row.as_usize());
+        let added = self.added_ticks.swap_remove(row.as_usize()).into_inner();
+        let changed =
+            self.changed_ticks.swap_remove(row.as_usize()).into_inner();
+        (data, ComponentTicks { added, changed })
+    }
+
     /// 清空此列（`Column`），移除其中的所有值
     ///
     /// 此方法不会影响此 [`Column`] 的已分配容量
     pub fn clear(&mut self) {
         self.data.clear();
+        self.added_ticks.clear();
+        self.changed_ticks.clear();
     }
 }
 
@@ -253,6 +353,31 @@ impl Table {
         self.entities.capacity()
     }
 
+    /// Fetches a read-only reference to the [`Column`] for a given [`Component`] within the
+    /// table.
+    ///
+    /// Returns `None` if the corresponding component does not belong to the table.
+    ///
+    /// [`Component`]: crate::component::Component
+    #[inline]
+    pub fn get_column(&self, component_id: ComponentId) -> Option<&Column> {
+        self.columns.get(&component_id)
+    }
+
+    /// Fetches a mutable reference to the [`Column`] for a given [`Component`] within the
+    /// table.
+    ///
+    /// Returns `None` if the corresponding component does not belong to the table.
+    ///
+    /// [`Component`]: crate::component::Component
+    #[inline]
+    pub(crate) fn get_column_mut(
+        &mut self,
+        component_id: ComponentId,
+    ) -> Option<&mut Column> {
+        self.columns.get_mut(&component_id)
+    }
+
     /// 扩展剩余容量
     pub(crate) fn reserve(&mut self, additional: usize) {
         if self.entities.capacity() - self.entities.len() < additional {
@@ -278,6 +403,8 @@ impl Table {
         self.entities.push(entity);
         for column in self.columns.values_mut() {
             column.data.set_len(self.entities.len());
+            column.added_ticks.push(UnsafeCell::new(Tick::new(0)));
+            column.changed_ticks.push(UnsafeCell::new(Tick::new(0)));
         }
         TableRow::from_usize(index)
     }

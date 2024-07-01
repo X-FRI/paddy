@@ -247,6 +247,79 @@ impl BlobVec {
         unsafe { self.get_ptr_mut().byte_add(index * size) }
     }
 
+    /// 在给定的 `index` 处执行“交换移除”，移除 `index` 处的项，并将 [`BlobVec`] 中最后一项移动到 `index` 位置（如果 `index` 不是最后一项）
+    ///
+    /// 如果需要，调用者有责任释放返回的指针
+    ///
+    /// # Safety
+    /// It is the caller's responsibility to ensure that `index` is less than `self.len()`.
+    #[inline]
+    #[must_use = "The returned pointer should be used to dropped the removed element"]
+    pub unsafe fn swap_remove_and_forget_unchecked(&mut self, index: usize) -> OwningPtr<'_> {
+        debug_assert!(index < self.len());
+        // 由于 `index` 必须严格小于 `self.len` 且 `index` 至少为零，
+        // 因此 `self.len` 必须至少为一。这样的话，不会下溢。
+        let new_len = self.len - 1;
+        let size = self.item_layout.size();
+        if index != new_len {
+            std::ptr::swap_nonoverlapping::<u8>(
+                self.get_unchecked_mut(index).as_ptr(),
+                self.get_unchecked_mut(new_len).as_ptr(),
+                size,
+            );
+        }
+        self.len = new_len;
+        // Cannot use get_unchecked here as this is technically out of bounds after changing len.
+        // SAFETY:
+        // - `new_len` is less than the old len, so it must fit in this vector's allocation.
+        // - `size` is a multiple of the erased type's alignment,
+        //   so adding a multiple of `size` will preserve alignment.
+        // - The removed element lives as long as this vector's mutable reference.
+        let p = unsafe { self.get_ptr_mut().byte_add(new_len * size) };
+        // SAFETY: The removed element is unreachable by this vector so it's safe to promote the
+        // `PtrMut` to an `OwningPtr`.
+        unsafe { p.promote() }
+    }
+
+    /// 移除 `index` 处的值并将存储的值复制到 `ptr` 中
+    ///
+    /// 不对 `index` 进行边界检查.
+    /// 被移除的元素由 `BlobVec` 的最后一个元素替换
+    ///
+    /// # Safety
+    /// 调用者有责任确保 `index` 小于 `self.len()`
+    /// 并且 `self[index]` 已经正确初始化。
+    #[inline]
+    pub unsafe fn swap_remove_unchecked(&mut self, index: usize, ptr: PtrMut<'_>) {
+        debug_assert!(index < self.len());
+        let last = self.get_unchecked_mut(self.len - 1).as_ptr();
+        let target = self.get_unchecked_mut(index).as_ptr();
+        // 将 index 处的项复制到提供的 ptr 中
+        std::ptr::copy_nonoverlapping::<u8>(target, ptr.as_ptr(), self.item_layout.size());
+        // Recompress the storage by moving the previous last element into the
+        // now-free row overwriting the previous data. The removed row may be the last
+        // one so a non-overlapping copy must not be used here.
+        std::ptr::copy::<u8>(last, target, self.item_layout.size());
+        // Invalidate the data stored in the last row, as it has been moved
+        self.len -= 1;
+    }
+
+    /// 移除 `index` 处的值并将其drop。
+    /// 不对 `index` 进行边界检查。
+    /// 被移除的元素由 `BlobVec` 的最后一个元素替换。
+    ///
+    /// # Safety
+    /// It is the caller's responsibility to ensure that `index` is `< self.len()`.
+    #[inline]
+    pub unsafe fn swap_remove_and_drop_unchecked(&mut self, index: usize) {
+        debug_assert!(index < self.len());
+        let drop = self.drop;
+        let value = self.swap_remove_and_forget_unchecked(index);
+        if let Some(drop) = drop {
+            drop(value);
+        }
+    }
+
     /// 获取指向 vec 起始位置的 [`Ptr`]
     #[inline]
     pub fn get_ptr(&self) -> Ptr<'_> {
@@ -372,11 +445,4 @@ pub const fn padding_needed_for(layout: &Layout, align: usize) -> usize {
     len_rounded_up.wrapping_sub(len)
 }
 
-mod tests {
-    use std::{alloc::Layout, num::NonZeroUsize, ptr::NonNull};
 
-    use super::BlobVec;
-
-    #[test]
-    fn test() {}
-}

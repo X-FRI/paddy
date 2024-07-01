@@ -129,7 +129,7 @@ struct ArchetypeComponents {
 ///
 /// 从Entity中移除或添加Component,只需要切换Archetype即可
 #[derive(Debug)]
-struct Archetype {
+pub(crate) struct Archetype {
     id: ArchetypeId,
     /// Archetype 对应的 Table
     table_id: TableId,
@@ -282,5 +282,19 @@ impl Archetypes {
         archetypes
     }
 
+}
 
+/// The next [`ArchetypeId`] in an [`Archetypes`] collection.
+///
+/// This is used in archetype update methods to limit archetype updates to the
+/// ones added since the last time the method ran.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ArchetypeGeneration(ArchetypeId);
+
+impl ArchetypeGeneration {
+    /// The first archetype.
+    #[inline]
+    pub const fn initial() -> Self {
+        ArchetypeGeneration(ArchetypeId::EMPTY)
+    }
 }

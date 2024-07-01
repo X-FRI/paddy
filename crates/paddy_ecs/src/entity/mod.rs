@@ -60,7 +60,7 @@ impl Entity {
     /// 需要注意 这个id并非唯一的, 它与上一个使用这个id的Entity(以被摧毁的) 是相同id \
     /// 但一定保证没有 2个 live Entity(活实体) 存在相同id \
     /// 只可能存在 1个 live Entity 和 多个 dead Entity 存在相同id \
-    pub(crate) const fn id(self) -> u32 {
+    pub(crate) const fn index(self) -> u32 {
         self.entity_id
     }
 }
