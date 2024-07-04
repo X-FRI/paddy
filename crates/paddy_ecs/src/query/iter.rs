@@ -53,6 +53,21 @@ impl<'w, 's, D: QueryData, F: QueryFilter> QueryIter<'w, 's, D, F> {
     }
 }
 
+impl<'w, 's, D: QueryData, F: QueryFilter> Iterator for QueryIter<'w, 's, D, F> {
+    type Item = D::Item<'w>;
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY:
+        // `tables` and `archetypes` belong to the same world that the cursor was initialized for.
+        // `query_state` is the state that was passed to `QueryIterationCursor::init`.
+        unsafe {
+            self.cursor
+                .next(self.tables, self.archetypes, self.query_state)
+        }
+    }
+
+}
+
 struct QueryIterationCursor<'w, 's, D: QueryData, F: QueryFilter> {
     storage_id_iter: std::slice::Iter<'s, StorageId>,
     table_entities: &'w [Entity],

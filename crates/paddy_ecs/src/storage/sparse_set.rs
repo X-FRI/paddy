@@ -518,7 +518,7 @@ pub(crate) struct ImmutableSparseSet<I, V: 'static> {
 /// 一个由 [`ComponentId`] 索引的 [`ComponentSparseSet`] 存储集合
 ///
 /// 可以通过 [`Storages`](crate::storage::Storages) 访问
-#[derive(Debug)]
+#[derive(Debug,Default)]
 pub struct SparseSets {
     sets: SparseSet<ComponentId, ComponentSparseSet>,
 }

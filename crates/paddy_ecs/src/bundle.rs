@@ -5,13 +5,14 @@ use std::{
 };
 
 use paddy_ptr::{ConstNonNull, OwningPtr};
+use paddy_utils::all_tuples;
 
 use crate::{
     archetype::{
         Archetype, ArchetypeId, Archetypes, BundleComponentStatus,
         ComponentStatus, SpawnBundleStatus,
     },
-    component::{tick::Tick, ComponentId, Components},
+    component::{tick::Tick, Component, ComponentId, Components},
     debug::DebugCheckedUnwrap,
     entity::{Entity, EntityLocation},
     storage::{
@@ -147,6 +148,80 @@ pub trait DynamicBundle {
     #[doc(hidden)]
     fn get_components(self, func: &mut impl FnMut(StorageType, OwningPtr<'_>));
 }
+// SAFETY:
+// - `Bundle::component_ids` calls `ids` for C's component id (and nothing else)
+// - `Bundle::get_components` is called exactly once for C and passes the component's storage type based on its associated constant.
+// - `Bundle::from_components` calls `func` exactly once for C, which is the exact value returned by `Bundle::component_ids`.
+unsafe impl<C: Component> Bundle for C {
+    fn component_ids(
+        components: &mut Components,
+        storages: &mut Storages,
+        ids: &mut impl FnMut(ComponentId),
+    ) {
+        ids(components.init_component::<C>(storages));
+    }
+
+    unsafe fn from_components<T, F>(ctx: &mut T, func: &mut F) -> Self
+    where
+        // Ensure that the `OwningPtr` is used correctly
+        F: for<'a> FnMut(&'a mut T) -> OwningPtr<'a>,
+        Self: Sized,
+    {
+        let ptr = func(ctx);
+        // Safety: The id given in `component_ids` is for `Self`
+        unsafe { ptr.read() }
+    }
+}
+
+impl<C: Component> DynamicBundle for C {
+    #[inline]
+    fn get_components(self, func: &mut impl FnMut(StorageType, OwningPtr<'_>)) {
+        OwningPtr::make(self, |ptr| func(C::STORAGE_TYPE, ptr));
+    }
+}
+
+macro_rules! tuple_impl {
+    ($($name: ident),*) => {
+        // SAFETY:
+        // - `Bundle::component_ids` calls `ids` for each component type in the
+        // bundle, in the exact order that `DynamicBundle::get_components` is called.
+        // - `Bundle::from_components` calls `func` exactly once for each `ComponentId` returned by `Bundle::component_ids`.
+        // - `Bundle::get_components` is called exactly once for each member. Relies on the above implementation to pass the correct
+        //   `StorageType` into the callback.
+        unsafe impl<$($name: Bundle),*> Bundle for ($($name,)*) {
+            #[allow(unused_variables)]
+            fn component_ids(components: &mut Components, storages: &mut Storages, ids: &mut impl FnMut(ComponentId)){
+                $(<$name as Bundle>::component_ids(components, storages, ids);)*
+            }
+
+            #[allow(unused_variables, unused_mut)]
+            #[allow(clippy::unused_unit)]
+            unsafe fn from_components<T, F>(ctx: &mut T, func: &mut F) -> Self
+            where
+                F: FnMut(&mut T) -> OwningPtr<'_>
+            {
+                #[allow(unused_unsafe)]
+                // SAFETY: Rust guarantees that tuple calls are evaluated 'left to right'.
+                // https://doc.rust-lang.org/reference/expressions.html#evaluation-order-of-operands
+                unsafe { ($(<$name as Bundle>::from_components(ctx, func),)*) }
+            }
+        }
+
+        impl<$($name: Bundle),*> DynamicBundle for ($($name,)*) {
+            #[allow(unused_variables, unused_mut)]
+            #[inline(always)]
+            fn get_components(self, func: &mut impl FnMut(StorageType, OwningPtr<'_>)) {
+                #[allow(non_snake_case)]
+                let ($(mut $name,)*) = self;
+                $(
+                    $name.get_components(&mut *func);
+                )*
+            }
+        }
+    }
+}
+
+all_tuples!(tuple_impl, 0, 15, B);
 
 /// 对于对应的 [`World`]，它存储了一个唯一的值，用于标识已注册的 [`Bundle`] 类型
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]

@@ -1,5 +1,4 @@
-use std::mem::ManuallyDrop;
-
+use std::{fmt::Debug, mem::ManuallyDrop};
 
 /// 一个在对象被销毁时调用函数的类型\
 /// `callback` 将在`drop`中被调用
@@ -25,7 +24,7 @@ use std::mem::ManuallyDrop;
 /// // 类似于 `try ... finally` 代码块
 ///     std::mem::forget(_catch);
 /// }
-/// 
+///
 /// test_panic(false, |_| unreachable!());
 /// let mut did_log = false;
 /// std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -50,5 +49,29 @@ impl<F: FnOnce()> Drop for OnDrop<F> {
         // SAFETY: We may move out of `self`, since this instance can never be observed after it's dropped.
         let callback = unsafe { ManuallyDrop::take(&mut self.callback) };
         callback();
+    }
+}
+
+/// Calls the [`tracing::info!`] macro on a value.
+pub fn info<T: Debug>(data: T) {
+    tracing::info!("{:?}", data);
+}
+
+/// Calls the [`tracing::debug!`] macro on a value.
+pub fn dbg<T: Debug>(data: T) {
+    tracing::debug!("{:?}", data);
+}
+
+/// Processes a [`Result`] by calling the [`tracing::warn!`] macro in case of an [`Err`] value.
+pub fn warn<E: Debug>(result: Result<(), E>) {
+    if let Err(warn) = result {
+        tracing::warn!("{:?}", warn);
+    }
+}
+
+/// Processes a [`Result`] by calling the [`tracing::error!`] macro in case of an [`Err`] value.
+pub fn error<E: Debug>(result: Result<(), E>) {
+    if let Err(error) = result {
+        tracing::error!("{:?}", error);
     }
 }

@@ -158,7 +158,7 @@ impl core::hash::Hash for Entity {
 // ```
 /// 用于 管理与分配 Entity
 /// #plan : 心智负担较重,等ecs计划第一步完成后,重新设计这个结构
-#[derive(Debug)]
+#[derive(Debug,Default)]
 pub(crate) struct Entities {
     /// 下标对应的是entity_id\
     /// 存在meta中并不代表是 live Entity ,可能是 dead Entity

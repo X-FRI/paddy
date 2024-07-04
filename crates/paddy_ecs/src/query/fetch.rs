@@ -1,9 +1,10 @@
 use std::cell::UnsafeCell;
 
 use paddy_ptr::ThinSlicePtr;
+use paddy_utils::all_tuples;
 
 use super::WorldQuery;
-use crate::storage::sparse_set::ComponentSparseSet;
+use crate::{component::Component, storage::sparse_set::ComponentSparseSet};
 
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not valid to request as data in a `Query`",
@@ -25,6 +26,34 @@ pub unsafe trait ReadOnlyQueryData: QueryData<ReadOnly = Self> {}
 pub type QueryItem<'w, Q> = <Q as WorldQuery>::Item<'w>;
 /// The read-only variant of the item type returned when a [`QueryData`] is iterated over immutably
 pub type ROQueryItem<'w, D> = QueryItem<'w, <D as QueryData>::ReadOnly>;
+
+
+macro_rules! impl_tuple_query_data {
+    ($(($name: ident, $state: ident)),*) => {
+
+        #[allow(non_snake_case)]
+        #[allow(clippy::unused_unit)]
+        // SAFETY: defers to soundness `$name: WorldQuery` impl
+        unsafe impl<$($name: QueryData),*> QueryData for ($($name,)*) {
+            type ReadOnly = ($($name::ReadOnly,)*);
+        }
+
+        /// SAFETY: each item in the tuple is read only
+        unsafe impl<$($name: ReadOnlyQueryData),*> ReadOnlyQueryData for ($($name,)*) {}
+
+    };
+}
+all_tuples!(impl_tuple_query_data, 0, 15, F, S);
+
+/// SAFETY: `Self` is the same as `Self::ReadOnly`
+unsafe impl<T: Component> QueryData for &T {
+    type ReadOnly = Self;
+}
+
+/// SAFETY: access is read only
+unsafe impl<T: Component> ReadOnlyQueryData for &T {}
+
+
 
 #[doc(hidden)]
 pub struct ReadFetch<'w, T> {

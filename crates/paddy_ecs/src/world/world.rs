@@ -13,7 +13,7 @@ use crate::{
     storage::Storages,
 };
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Copy, Clone, PartialEq,Default, Eq, Debug, Hash)]
 pub struct WorldId(u32);
 static WORLD_ID: AtomicU32 = AtomicU32::new(0);
 impl WorldId {
@@ -45,16 +45,37 @@ pub struct World {
     pub(crate) last_check_tick: Tick,
 }
 
-impl World {
-    /// 创建一个World
-    pub fn create_world() -> Self {
-        todo!();
+impl Default for World {
+    fn default() -> Self {
+        Self {
+            world_id: WorldId::next().expect("More `bevy` `World`s have been created than is supported"),
+            entities: Entities::new(),
+            components: Default::default(),
+            archetypes: Archetypes::new(),
+            storages: Default::default(),
+            bundles: Default::default(),
+            // removed_components: Default::default(),
+            // Default value is `1`, and `last_change_tick`s default to `0`, such that changes
+            // are detected on first system runs and for direct world queries.
+            change_tick: AtomicU32::new(1),
+            last_change_tick: Tick::new(0),
+            last_check_tick: Tick::new(0),
+            // command_queue: RawCommandQueue::new(),
+        }
     }
+}
 
-    /// 在当前World中,创建一个 Entity \
-    /// @return EntityBuilder 用于初始化构造这个Entity
-    pub fn create_entity(&mut self) -> EntityBuilder {
-        todo!()
+impl World {
+    /// Creates a new empty [`World`].
+    ///
+    /// # Panics
+    ///
+    /// If [`usize::MAX`] [`World`]s have been created.
+    /// This guarantee allows System Parameters to safely uniquely identify a [`World`],
+    /// since its [`WorldId`] is unique
+    #[inline]
+    pub fn new() -> World {
+        World::default()
     }
 
     /// Retrieves this [`World`]'s unique ID
@@ -96,7 +117,7 @@ impl World {
 
     /// Initializes a new [`Component`] type and returns the [`ComponentId`] created for it.
     pub fn init_component<T: Component>(&mut self) -> ComponentId {
-        self.components.init_component::<T>()
+        self.components.init_component::<T>(&mut self.storages)
     }
 
     /// Creates a new [`UnsafeWorldCell`] view with complete read+write access.

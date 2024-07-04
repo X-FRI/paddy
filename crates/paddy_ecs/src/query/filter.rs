@@ -1,3 +1,5 @@
+use paddy_utils::all_tuples;
+
 use super::WorldQuery;
 use crate::{entity::Entity, storage::table::TableRow};
 
@@ -31,3 +33,30 @@ pub trait QueryFilter: WorldQuery {
         table_row: TableRow,
     ) -> bool;
 }
+
+
+macro_rules! impl_tuple_query_filter {
+    ($($name: ident),*) => {
+        #[allow(unused_variables)]
+        #[allow(non_snake_case)]
+        #[allow(clippy::unused_unit)]
+
+        impl<$($name: QueryFilter),*> QueryFilter for ($($name,)*) {
+            const IS_ARCHETYPAL: bool = true $(&& $name::IS_ARCHETYPAL)*;
+
+            #[inline(always)]
+            unsafe fn filter_fetch(
+                fetch: &mut Self::Fetch<'_>,
+                _entity: Entity,
+                _table_row: TableRow
+            ) -> bool {
+                let ($($name,)*) = fetch;
+                // SAFETY: The invariants are uphold by the caller.
+                true $(&& unsafe { $name::filter_fetch($name, _entity, _table_row) })*
+            }
+        }
+
+    };
+}
+
+all_tuples!(impl_tuple_query_filter, 0, 15, F);

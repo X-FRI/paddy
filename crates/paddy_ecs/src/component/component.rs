@@ -10,7 +10,7 @@ use std::{
 
 use paddy_ptr::OwningPtr;
 
-use crate::storage::{sparse_set::SparseSetIndex, StorageType};
+use crate::storage::{sparse_set::SparseSetIndex, StorageType, Storages};
 
 /// 用于唯一标识 [`World`] 中某个 [`Component`] 或 [`Resource`] ,便于跟踪组件或资源
 ///
@@ -62,7 +62,7 @@ pub trait Component: Any + Send + Sync + 'static {
 
 /// 在对应World中,用于管理和存储所有注册的组件类型的元信息
 ///
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Components {
     /// ComponentId为下标
     components: Vec<ComponentInfo>,
@@ -124,8 +124,12 @@ impl Components {
     ///
     /// @return 如果该类型的组件已经被初始化过，那么此方法会返回之前已经存在的 ComponentId
     #[inline]
-    pub fn init_component<T: Component>(&mut self) -> ComponentId {
+    pub fn init_component<T: Component>(
+        &mut self,
+        storages: &mut Storages,
+    ) -> ComponentId {
         let type_id = TypeId::of::<T>();
+
         let Components {
             indices,
             components,
@@ -134,8 +138,10 @@ impl Components {
         *indices.entry(type_id).or_insert_with(|| {
             let index = Components::init_component_inner(
                 components,
+                storages,
                 ComponentDescriptor::new::<T>(),
             );
+            // T::register_component_hooks(&mut components[index.index()].hooks);
             index
         })
     }
@@ -157,11 +163,14 @@ impl Components {
     #[inline]
     fn init_component_inner(
         components: &mut Vec<ComponentInfo>,
+        storages: &mut Storages,
         descriptor: ComponentDescriptor,
     ) -> ComponentId {
         let component_id = ComponentId(components.len());
         let info = ComponentInfo::new(component_id, descriptor);
-
+        if info.descriptor.storage_type == StorageType::SparseSet {
+            storages.sparse_sets.get_or_insert(&info);
+        }
         components.push(info);
         component_id
     }

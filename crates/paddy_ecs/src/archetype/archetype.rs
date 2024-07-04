@@ -331,7 +331,7 @@ impl Archetype {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,Default)]
 pub(crate) struct Archetypes {
     archetypes: Vec<Archetype>,
     archetype_component_count: usize,
@@ -348,12 +348,12 @@ impl Archetypes {
         // SAFETY: Empty archetype has no components
         // pull 一个 ArchetypeId=0 的 Archetype, 即这个Archetype表示没有任何Component的Archetype
         unsafe {
-            // archetypes.get_id_or_insert(
-            //     &Components::default(),
-            //     TableId::empty(),
-            //     Vec::new(),
-            //     Vec::new(),
-            // );
+            archetypes.get_id_or_insert(
+                &Components::default(),
+                TableId::empty(),
+                Vec::new(),
+                Vec::new(),
+            );
         }
         archetypes
     }

@@ -164,31 +164,107 @@ pub unsafe trait WorldQuery {
     ) -> bool;
 }
 
-// pub(crate) trait WorldQuery {
-//     /// 查询的 返回值的类型
-//     type Item<'a>;
-//     /// 用于如何从 World 中提取数据
-//     #[doc(hidden)]
-//     type Fetch: Fetch;
 
-//     unsafe fn get<'a>(fetch: &Self::Fetch, n: usize) -> Self::Item<'a>;
-// }
-
-// pub(crate) unsafe trait Fetch: Clone + Sized {
-//     /// 构建 [`Fetch`] 所需的状态
-//     ///
-//     /// 该状态被缓存，以减少每次查询时的计算成本
-//     type State: Copy;
-// }
 
 pub mod impl_world_query {
     use fetch::ReadFetch;
+    use paddy_utils::all_tuples;
 
     use super::*;
     use crate::{
         _todo, component::Component, debug::DebugCheckedUnwrap, query::fetch,
         storage::StorageType,
     };
+
+
+    macro_rules! impl_tuple_world_query {
+        ($(($name: ident, $state: ident)),*) => {
+    
+            #[allow(non_snake_case)]
+            #[allow(clippy::unused_unit)]
+            /// SAFETY:
+            /// `fetch` accesses are the conjunction of the subqueries' accesses
+            /// This is sound because `update_component_access` adds accesses according to the implementations of all the subqueries.
+            /// `update_component_access` adds all `With` and `Without` filters from the subqueries.
+            /// This is sound because `matches_component_set` always returns `false` if any the subqueries' implementations return `false`.
+            unsafe impl<$($name: WorldQuery),*> WorldQuery for ($($name,)*) {
+                type Fetch<'w> = ($($name::Fetch<'w>,)*);
+                type Item<'w> = ($($name::Item<'w>,)*);
+                type State = ($($name::State,)*);
+    
+                fn shrink<'wlong: 'wshort, 'wshort>(item: Self::Item<'wlong>) -> Self::Item<'wshort> {
+                    let ($($name,)*) = item;
+                    ($(
+                        $name::shrink($name),
+                    )*)
+                }
+    
+                #[inline]
+                #[allow(clippy::unused_unit)]
+                unsafe fn init_fetch<'w>(_world: UnsafeWorldCell<'w>, state: &Self::State, _last_run: Tick, _this_run: Tick) -> Self::Fetch<'w> {
+                    let ($($name,)*) = state;
+                    // SAFETY: The invariants are uphold by the caller.
+                    ($(unsafe { $name::init_fetch(_world, $name, _last_run, _this_run) },)*)
+                }
+    
+                const IS_DENSE: bool = true $(&& $name::IS_DENSE)*;
+    
+                #[inline]
+                unsafe fn set_archetype<'w>(
+                    _fetch: &mut Self::Fetch<'w>,
+                    _state: &Self::State,
+                    _archetype: &'w Archetype,
+                    _table: &'w Table
+                ) {
+                    let ($($name,)*) = _fetch;
+                    let ($($state,)*) = _state;
+                    // SAFETY: The invariants are uphold by the caller.
+                    $(unsafe { $name::set_archetype($name, $state, _archetype, _table); })*
+                }
+    
+                #[inline]
+                unsafe fn set_table<'w>(_fetch: &mut Self::Fetch<'w>, _state: &Self::State, _table: &'w Table) {
+                    let ($($name,)*) = _fetch;
+                    let ($($state,)*) = _state;
+                    // SAFETY: The invariants are uphold by the caller.
+                    $(unsafe { $name::set_table($name, $state, _table); })*
+                }
+    
+                #[inline(always)]
+                #[allow(clippy::unused_unit)]
+                unsafe fn fetch<'w>(
+                    _fetch: &mut Self::Fetch<'w>,
+                    _entity: Entity,
+                    _table_row: TableRow
+                ) -> Self::Item<'w> {
+                    let ($($name,)*) = _fetch;
+                    // SAFETY: The invariants are uphold by the caller.
+                    ($(unsafe { $name::fetch($name, _entity, _table_row) },)*)
+                }
+    
+                // fn update_component_access(state: &Self::State, _access: &mut FilteredAccess<ComponentId>) {
+                //     let ($($name,)*) = state;
+                //     $($name::update_component_access($name, _access);)*
+                // }
+                #[allow(unused_variables)]
+                fn init_state(world: &mut World) -> Self::State {
+                    ($($name::init_state(world),)*)
+                }
+                #[allow(unused_variables)]
+                fn get_state(components: &Components) -> Option<Self::State> {
+                    Some(($($name::get_state(components)?,)*))
+                }
+    
+                fn matches_component_set(state: &Self::State, _set_contains_id: &impl Fn(ComponentId) -> bool) -> bool {
+                    let ($($name,)*) = state;
+                    true $(&& $name::matches_component_set($name, _set_contains_id))*
+                }
+            }
+        };
+    }
+    
+    all_tuples!(impl_tuple_world_query, 0, 15, F, S);
+    
 
     unsafe impl<T: Component> WorldQuery for &T {
         type Item<'w> = &'w T;

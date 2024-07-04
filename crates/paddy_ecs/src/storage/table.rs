@@ -529,6 +529,16 @@ impl Tables {
     }
 }
 
+impl Default for Tables {
+    fn default() -> Self {
+        let empty_table = TableBuilder::with_capacity(0, 0).build();
+        Tables {
+            tables: vec![empty_table],
+            table_ids: HashMap::default(),
+        }
+    }
+}
+
 impl Index<TableId> for Tables {
     type Output = Table;
     #[inline]
@@ -540,6 +550,9 @@ impl Index<TableId> for Tables {
 impl IndexMut<TableId> for Tables {
     #[inline]
     fn index_mut(&mut self, index: TableId) -> &mut Self::Output {
+        paddy_utils::dbg(index);
+        paddy_utils::dbg(self.tables.capacity());
+
         &mut self.tables[index.as_usize()]
     }
 }
