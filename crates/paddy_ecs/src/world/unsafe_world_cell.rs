@@ -1,6 +1,9 @@
 use std::{cell::UnsafeCell, fmt::Debug, marker::PhantomData, ptr};
 
-use super::World;
+use crate::{storage::Storages};
+use crate::archetype::Archetypes;
+
+use super::{World, WorldId};
 
 /// Variant of the [`World`] where resource and component accesses take `&self`, and the responsibility to avoid
 /// aliasing violations are given to the caller instead of being checked at compile-time by rust's unique XOR shared rule.
@@ -87,7 +90,7 @@ impl<'w> UnsafeWorldCell<'w> {
         Self(ptr::from_mut(world), PhantomData)
     }
 
-        /// Gets a mutable reference to the [`World`] this [`UnsafeWorldCell`] belongs to.
+    /// Gets a mutable reference to the [`World`] this [`UnsafeWorldCell`] belongs to.
     /// This is an incredibly error-prone operation and is only valid in a small number of circumstances.
     ///
     /// # Safety
@@ -148,6 +151,35 @@ impl<'w> UnsafeWorldCell<'w> {
     pub unsafe fn world_metadata(self) -> &'w World {
         // SAFETY: caller ensures that returned reference is not used to violate aliasing rules
         unsafe { self.unsafe_world() }
+    }
+
+    /// Retrieves this world's unique [ID](WorldId).
+    #[inline]
+    pub fn id(self) -> WorldId {
+        // SAFETY:
+        // - we only access world metadata
+        unsafe { self.world_metadata() }.id()
+    }
+
+    /// Retrieves this world's [`Archetypes`] collection.
+    #[inline]
+    pub fn archetypes(self) -> &'w Archetypes {
+        // SAFETY:
+        // - we only access world metadata
+        &unsafe { self.world_metadata() }.archetypes
+    }
+    /// Provides unchecked access to the internal data stores of the [`World`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that this is only used to access world data
+    /// that this [`UnsafeWorldCell`] is allowed to.
+    /// As always, any mutable access to a component must not exist at the same
+    /// time as any other accesses to that same component.
+    #[inline]
+    pub unsafe fn storages(self) -> &'w Storages {
+        // SAFETY: The caller promises to only access world data allowed by this instance.
+        &unsafe { self.unsafe_world() }.storages
     }
     /// Variant on [`UnsafeWorldCell::world`] solely used for implementing this type's methods.
     /// It allows having an `&World` even with live mutable borrows of components and resources

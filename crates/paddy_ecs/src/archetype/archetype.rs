@@ -1,11 +1,21 @@
-use std::{alloc::Layout, any::TypeId, collections::HashMap};
-
-use crate::component::{ComponentId, Components};
-
-use super::{
-    table::{TableId, TableRow},
-    Entity, EntityId, EntityLocation,
+use std::{
+    alloc::Layout,
+    any::TypeId,
+    collections::HashMap,
+    ops::{Index, IndexMut, RangeFrom},
 };
+
+use crate::{
+    component::{ComponentId, Components},
+    storage::{sparse_set::{ImmutableSparseSet, SparseSet}, StorageType},
+};
+
+use crate::{
+    entity::{Entity, EntityId, EntityLocation},
+    storage::table::{TableId, TableRow},
+};
+
+use super::Edges;
 
 /// [`Archetype::entities`] 的下标,指向Entity
 ///
@@ -116,6 +126,7 @@ impl ArchetypeEntity {
 /// 给定 [`Archetype`] 中 [`Component`] 的 内部元数据
 #[derive(Debug)]
 pub(crate) struct ArchetypeComponentInfo {
+    storage_type: StorageType,
     archetype_component_id: ArchetypeComponentId,
 }
 
@@ -123,6 +134,7 @@ pub(crate) struct ArchetypeComponentInfo {
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct ArchetypeComponents {
     table_components: Box<[ComponentId]>,
+    sparse_set_components: Box<[ComponentId]>,
 }
 
 /// Archetype 表示一种组件组合
@@ -133,35 +145,57 @@ pub(crate) struct Archetype {
     id: ArchetypeId,
     /// Archetype 对应的 Table
     table_id: TableId,
+    edges: Edges,
     entities: Vec<ArchetypeEntity>,
     /// 一旦Archetype被构造后,这个字段就不可变
-    components: HashMap<ComponentId, ArchetypeComponentInfo>,
+    components: ImmutableSparseSet<ComponentId, ArchetypeComponentInfo>,
 }
+
 impl Archetype {
     pub(crate) fn new(
         components: &Components,
         id: ArchetypeId,
         table_id: TableId,
         table_components: impl Iterator<Item = (ComponentId, ArchetypeComponentId)>,
+        sparse_set_components: impl Iterator<Item = (ComponentId, ArchetypeComponentId)>,
     ) -> Self {
         let (min_table, _) = table_components.size_hint();
-        let mut archetype_components = HashMap::with_capacity(min_table);
+        let (min_sparse, _) = sparse_set_components.size_hint();
+        // let mut flags = ArchetypeFlags::empty();
+        let mut archetype_components = 
+            SparseSet::with_capacity(min_table + min_sparse);
         for (component_id, archetype_component_id) in table_components {
             // SAFETY: We are creating an archetype that includes this component so it must exist
             let info = unsafe { components.get_info_unchecked(component_id) };
+            // info.update_archetype_flags(&mut flags);
             archetype_components.insert(
                 component_id,
                 ArchetypeComponentInfo {
+                    storage_type: StorageType::Table,
                     archetype_component_id,
                 },
             );
         }
 
+        for (component_id, archetype_component_id) in sparse_set_components {
+            // SAFETY: We are creating an archetype that includes this component so it must exist
+            let info = unsafe { components.get_info_unchecked(component_id) };
+            // info.update_archetype_flags(&mut flags);
+            archetype_components.insert(
+                component_id,
+                ArchetypeComponentInfo {
+                    storage_type: StorageType::SparseSet,
+                    archetype_component_id,
+                },
+            );
+        }
         Self {
             id,
             table_id,
             entities: Vec::new(),
-            components: archetype_components,
+            components: archetype_components.into_immutable(),
+            edges: Default::default(),
+            // flags,
         }
     }
 
@@ -193,12 +227,33 @@ impl Archetype {
     pub fn is_empty(&self) -> bool {
         self.entities.is_empty()
     }
+
+    /// Fetches a immutable reference to the archetype's [`Edges`], a cache of
+    /// archetypal relationships.
+    #[inline]
+    pub fn edges(&self) -> &Edges {
+        &self.edges
+    }
+
+    /// Fetches a mutable reference to the archetype's [`Edges`], a cache of
+    /// archetypal relationships.
+    #[inline]
+    pub(crate) fn edges_mut(&mut self) -> &mut Edges {
+        &mut self.edges
+    }
+
+    /// Checks if the archetype contains a specific component. This runs in `O(1)` time.
+    #[inline]
+    pub fn contains(&self, component_id: ComponentId) -> bool {
+        self.components.contains(component_id)
+    }
+
     /// Gets an iterator of all of the components in the archetype.
     ///
     /// All of the IDs are unique.
     #[inline]
     pub fn components(&self) -> impl Iterator<Item = ComponentId> + '_ {
-        self.components.keys().cloned()
+        self.components.indices()
     }
 
     /// Returns the total number of components in the archetype
@@ -223,7 +278,11 @@ impl Archetype {
     /// # Panics
     /// This function will panic if `index >= self.len()`.
     #[inline]
-    pub(crate) fn set_entity_table_row(&mut self, row: ArchetypeRow, table_row: TableRow) {
+    pub(crate) fn set_entity_table_row(
+        &mut self,
+        row: ArchetypeRow,
+        table_row: TableRow,
+    ) {
         self.entities[row.index()].table_row = table_row;
     }
     /// Allocates an entity to the archetype.
@@ -253,6 +312,22 @@ impl Archetype {
         self.entities.reserve(additional);
     }
 
+    /// Gets an iterator of all of the components stored in [`ComponentSparseSet`]s.
+    ///
+    /// All of the IDs are unique.
+    ///
+    /// [`ComponentSparseSet`]: crate::storage::ComponentSparseSet
+    #[inline]
+    pub fn sparse_set_components(
+        &self,
+    ) -> impl Iterator<Item = ComponentId> + '_ {
+        self.components
+            .iter()
+            .filter(|(_, component)| {
+                component.storage_type == StorageType::SparseSet
+            })
+            .map(|(id, _)| *id)
+    }
 }
 
 #[derive(Debug)]
@@ -282,6 +357,108 @@ impl Archetypes {
         archetypes
     }
 
+    /// Fetches an immutable reference to an [`Archetype`] using its
+    /// ID. Returns `None` if no corresponding archetype exists.
+    #[inline]
+    pub fn get(&self, id: ArchetypeId) -> Option<&Archetype> {
+        self.archetypes.get(id.index())
+    }
+
+    /// Returns the "generation", a handle to the current highest archetype ID.
+    ///
+    /// This can be used with the `Index` [`Archetypes`] implementation to
+    /// iterate over newly introduced [`Archetype`]s since the last time this
+    /// function was called.
+    #[inline]
+    pub fn generation(&self) -> ArchetypeGeneration {
+        let id = ArchetypeId::new(self.archetypes.len());
+        ArchetypeGeneration(id)
+    }
+
+    /// Fetches an mutable reference to the archetype without any components.
+    #[inline]
+    pub(crate) fn empty_mut(&mut self) -> &mut Archetype {
+        // SAFETY: empty archetype always exists
+        unsafe {
+            self.archetypes
+                .get_unchecked_mut(ArchetypeId::EMPTY.index())
+        }
+    }
+
+    /// Gets the archetype id matching the given inputs or inserts a new one if it doesn't exist.
+    /// `table_components` and `sparse_set_components` must be sorted
+    ///
+    /// # Safety
+    /// [`TableId`] must exist in tables
+    /// `table_components` and `sparse_set_components` must exist in `components`
+    pub(crate) unsafe fn get_id_or_insert(
+        &mut self,
+        components: &Components,
+        table_id: TableId,
+        table_components: Vec<ComponentId>,
+        sparse_set_components: Vec<ComponentId>,
+    ) -> ArchetypeId {
+        let archetype_identity = ArchetypeComponents {
+            sparse_set_components: sparse_set_components
+                .clone()
+                .into_boxed_slice(),
+            table_components: table_components.clone().into_boxed_slice(),
+        };
+
+        let archetypes = &mut self.archetypes;
+        let archetype_component_count = &mut self.archetype_component_count;
+        *self.by_components.entry(archetype_identity).or_insert_with(
+            move || {
+                let id = ArchetypeId::new(archetypes.len());
+                let table_start = *archetype_component_count;
+                *archetype_component_count += table_components.len();
+                let table_archetype_components = (table_start
+                    ..*archetype_component_count)
+                    .map(ArchetypeComponentId);
+                let sparse_start = *archetype_component_count;
+                *archetype_component_count += sparse_set_components.len();
+                let sparse_set_archetype_components = (sparse_start
+                    ..*archetype_component_count)
+                    .map(ArchetypeComponentId);
+                archetypes.push(Archetype::new(
+                    components,
+                    id,
+                    table_id,
+                    table_components
+                        .into_iter()
+                        .zip(table_archetype_components),
+                    sparse_set_components
+                        .into_iter()
+                        .zip(sparse_set_archetype_components),
+                ));
+                id
+            },
+        )
+    }
+}
+
+impl Index<RangeFrom<ArchetypeGeneration>> for Archetypes {
+    type Output = [Archetype];
+
+    #[inline]
+    fn index(&self, index: RangeFrom<ArchetypeGeneration>) -> &Self::Output {
+        &self.archetypes[index.start.0.index()..]
+    }
+}
+impl Index<ArchetypeId> for Archetypes {
+    type Output = Archetype;
+
+    #[inline]
+    fn index(&self, index: ArchetypeId) -> &Self::Output {
+        &self.archetypes[index.index()]
+    }
+}
+
+impl IndexMut<ArchetypeId> for Archetypes {
+    #[inline]
+    fn index_mut(&mut self, index: ArchetypeId) -> &mut Self::Output {
+        &mut self.archetypes[index.index()]
+    }
 }
 
 /// The next [`ArchetypeId`] in an [`Archetypes`] collection.

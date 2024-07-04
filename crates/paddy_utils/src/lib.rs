@@ -1,5 +1,8 @@
 use std::mem::ManuallyDrop;
 
+pub mod hash;
+
+pub use paddy_utils_proc_macros::*;
 
 
 /// 一个在对象被销毁时调用函数的类型\

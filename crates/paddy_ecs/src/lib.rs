@@ -14,3 +14,4 @@ mod storage;
 mod bundle;
 mod query;
 mod _todo;
+mod archetype;

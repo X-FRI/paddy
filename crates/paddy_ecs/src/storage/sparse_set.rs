@@ -5,7 +5,10 @@ use nonmax::NonMaxUsize;
 use paddy_ptr::{OwningPtr, Ptr};
 
 use crate::{
-    component::{tick::{ComponentTicks, Tick}, ComponentId, ComponentInfo},
+    component::{
+        tick::{ComponentTicks, Tick},
+        ComponentId, ComponentInfo,
+    },
     entity::Entity,
 };
 
@@ -46,6 +49,98 @@ macro_rules! impl_sparse_set_index {
     };
 }
 impl_sparse_set_index!(u8, u16, u32, u64, usize);
+
+macro_rules! impl_sparse_array {
+    ($ty:ident) => {
+        impl<I: SparseSetIndex, V> $ty<I, V> {
+            /// Returns `true` if the collection contains a value for the specified `index`.
+            #[inline]
+            pub fn contains(&self, index: I) -> bool {
+                let index = index.sparse_set_index();
+                self.values.get(index).map(|v| v.is_some()).unwrap_or(false)
+            }
+
+            /// Returns a reference to the value at `index`.
+            ///
+            /// Returns `None` if `index` does not have a value or if `index` is out of bounds.
+            #[inline]
+            pub fn get(&self, index: I) -> Option<&V> {
+                let index = index.sparse_set_index();
+                self.values.get(index).map(|v| v.as_ref()).unwrap_or(None)
+            }
+        }
+    };
+}
+impl_sparse_array!(SparseArray);
+impl_sparse_array!(ImmutableSparseArray);
+
+macro_rules! impl_sparse_set {
+    ($ty:ident) => {
+        impl<I: SparseSetIndex, V> $ty<I, V> {
+            /// Returns the number of elements in the sparse set.
+            #[inline]
+            pub fn len(&self) -> usize {
+                self.dense.len()
+            }
+
+            /// Returns `true` if the sparse set contains a value for `index`.
+            #[inline]
+            pub fn contains(&self, index: I) -> bool {
+                self.sparse.contains(index)
+            }
+
+            /// Returns a reference to the value for `index`.
+            ///
+            /// Returns `None` if `index` does not have a value in the sparse set.
+            pub fn get(&self, index: I) -> Option<&V> {
+                self.sparse.get(index).map(|dense_index| {
+                    // SAFETY: if the sparse index points to something in the dense vec, it exists
+                    unsafe { self.dense.get_unchecked(dense_index.get()) }
+                })
+            }
+
+            /// Returns a mutable reference to the value for `index`.
+            ///
+            /// Returns `None` if `index` does not have a value in the sparse set.
+            pub fn get_mut(&mut self, index: I) -> Option<&mut V> {
+                let dense = &mut self.dense;
+                self.sparse.get(index).map(move |dense_index| {
+                    // SAFETY: if the sparse index points to something in the dense vec, it exists
+                    unsafe { dense.get_unchecked_mut(dense_index.get()) }
+                })
+            }
+
+            /// Returns an iterator visiting all keys (indices) in arbitrary order.
+            pub fn indices(&self) -> impl Iterator<Item = I> + '_ {
+                self.indices.iter().cloned()
+            }
+
+            /// Returns an iterator visiting all values in arbitrary order.
+            pub fn values(&self) -> impl Iterator<Item = &V> {
+                self.dense.iter()
+            }
+
+            /// Returns an iterator visiting all values mutably in arbitrary order.
+            pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+                self.dense.iter_mut()
+            }
+
+            /// Returns an iterator visiting all key-value pairs in arbitrary order, with references to the values.
+            pub fn iter(&self) -> impl Iterator<Item = (&I, &V)> {
+                self.indices.iter().zip(self.dense.iter())
+            }
+
+            /// Returns an iterator visiting all key-value pairs in arbitrary order, with mutable references to the values.
+            pub fn iter_mut(&mut self) -> impl Iterator<Item = (&I, &mut V)> {
+                self.indices.iter().zip(self.dense.iter_mut())
+            }
+        }
+    };
+}
+
+impl_sparse_set!(SparseSet);
+impl_sparse_set!(ImmutableSparseSet);
+
 
 type EntityIndex = u32;
 
@@ -123,29 +218,6 @@ pub(crate) struct ImmutableSparseArray<I, V = I> {
     marker: PhantomData<I>,
 }
 
-macro_rules! impl_sparse_array {
-    ($ty:ident) => {
-        impl<I: SparseSetIndex, V> $ty<I, V> {
-            /// Returns `true` if the collection contains a value for the specified `index`.
-            #[inline]
-            pub fn contains(&self, index: I) -> bool {
-                let index = index.sparse_set_index();
-                self.values.get(index).map(|v| v.is_some()).unwrap_or(false)
-            }
-
-            /// Returns a reference to the value at `index`.
-            ///
-            /// Returns `None` if `index` does not have a value or if `index` is out of bounds.
-            #[inline]
-            pub fn get(&self, index: I) -> Option<&V> {
-                let index = index.sparse_set_index();
-                self.values.get(index).map(|v| v.as_ref()).unwrap_or(None)
-            }
-        }
-    };
-}
-impl_sparse_array!(SparseArray);
-impl_sparse_array!(ImmutableSparseArray);
 
 /// 一个稀疏的数据结构，用于存储 [`Component`](crate::component::Component)
 ///
@@ -206,7 +278,7 @@ impl ComponentSparseSet {
         &mut self,
         entity: Entity,
         value: OwningPtr<'_>,
-        change_tick: Tick
+        change_tick: Tick,
     ) {
         if let Some(&dense_index) = self.sparse.get(entity.index()) {
             #[cfg(debug_assertions)]
@@ -268,7 +340,7 @@ impl ComponentSparseSet {
             self.entities.swap_remove(dense_index.as_usize());
             let is_last = dense_index.as_usize() == self.dense.len() - 1;
             // SAFETY: dense_index was just removed from `sparse`, which ensures that it is valid
-            let (value,_) = unsafe {
+            let (value, _) = unsafe {
                 self.dense.swap_remove_and_forget_unchecked(dense_index)
             };
             if !is_last {
@@ -308,6 +380,10 @@ impl ComponentSparseSet {
         } else {
             false
         }
+    }
+
+    pub(crate) fn check_change_ticks(&mut self, change_tick: Tick) {
+        self.dense.check_change_ticks(change_tick);
     }
 }
 
@@ -448,4 +524,72 @@ pub(crate) struct ImmutableSparseSet<I, V: 'static> {
 #[derive(Debug)]
 pub struct SparseSets {
     sets: SparseSet<ComponentId, ComponentSparseSet>,
+}
+
+impl SparseSets {
+    /// Returns the number of [`ComponentSparseSet`]s this collection contains.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.sets.len()
+    }
+
+    /// Returns true if this collection contains no [`ComponentSparseSet`]s.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.sets.is_empty()
+    }
+
+    /// An Iterator visiting all ([`ComponentId`], [`ComponentSparseSet`]) pairs.
+    /// NOTE: Order is not guaranteed.
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = (ComponentId, &ComponentSparseSet)> {
+        self.sets.iter().map(|(id, data)| (*id, data))
+    }
+
+    /// Gets a reference to the [`ComponentSparseSet`] of a [`ComponentId`].
+    #[inline]
+    pub fn get(
+        &self,
+        component_id: ComponentId,
+    ) -> Option<&ComponentSparseSet> {
+        self.sets.get(component_id)
+    }
+
+    /// Gets a mutable reference of [`ComponentSparseSet`] of a [`ComponentInfo`].
+    /// Create a new [`ComponentSparseSet`] if not exists.
+    pub(crate) fn get_or_insert(
+        &mut self,
+        component_info: &ComponentInfo,
+    ) -> &mut ComponentSparseSet {
+        if !self.sets.contains(component_info.id()) {
+            self.sets.insert(
+                component_info.id(),
+                ComponentSparseSet::new(component_info, 64),
+            );
+        }
+
+        self.sets.get_mut(component_info.id()).unwrap()
+    }
+
+    /// Gets a mutable reference to the [`ComponentSparseSet`] of a [`ComponentId`].
+    pub(crate) fn get_mut(
+        &mut self,
+        component_id: ComponentId,
+    ) -> Option<&mut ComponentSparseSet> {
+        self.sets.get_mut(component_id)
+    }
+
+    /// Clear entities stored in each [`ComponentSparseSet`]
+    pub(crate) fn clear_entities(&mut self) {
+        for set in self.sets.values_mut() {
+            set.clear();
+        }
+    }
+
+    pub(crate) fn check_change_ticks(&mut self, change_tick: Tick) {
+        for set in self.sets.values_mut() {
+            set.check_change_ticks(change_tick);
+        }
+    }
 }

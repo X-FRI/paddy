@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+hashbrown = "0.14.5"
+ahash = "0.8.11"
+paddy_utils_proc_macros = { path = "macros" }
+

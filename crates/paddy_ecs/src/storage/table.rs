@@ -1,22 +1,24 @@
 use std::{
     alloc::Layout,
     cell::UnsafeCell,
-    collections::HashMap,
     ops::{Index, IndexMut},
     ptr::NonNull,
 };
 
 use paddy_ptr::{OwningPtr, Ptr, PtrMut};
+use paddy_utils::hash::HashMap;
 
 use crate::{
     component::{
         tick::{ComponentTicks, Tick},
-        ComponentId, ComponentInfo,
+        ComponentId, ComponentInfo, Components,
     },
     storage::blob_vec::BlobVec,
 };
 
 use crate::entity::Entity;
+
+use super::sparse_set::{ImmutableSparseSet, SparseSet};
 
 /// 在一个World中唯一的Table id (多World中不唯一)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,7 +166,7 @@ impl Column {
         &mut self,
         row: TableRow,
         data: OwningPtr<'_>,
-        change_tick: Tick
+        change_tick: Tick,
     ) {
         debug_assert!(row.as_usize() < self.len());
         self.data.replace_unchecked(row.as_usize(), data);
@@ -294,6 +296,59 @@ impl Column {
         self.added_ticks.clear();
         self.changed_ticks.clear();
     }
+
+    #[inline]
+    pub(crate) fn check_change_ticks(&mut self, change_tick: Tick) {
+        for component_ticks in &mut self.added_ticks {
+            component_ticks.get_mut().check_tick(change_tick);
+        }
+        for component_ticks in &mut self.changed_ticks {
+            component_ticks.get_mut().check_tick(change_tick);
+        }
+    }
+}
+
+
+/// A builder type for constructing [`Table`]s.
+///
+///  - Use [`with_capacity`] to initialize the builder.
+///  - Repeatedly call [`add_column`] to add columns for components.
+///  - Finalize with [`build`] to get the constructed [`Table`].
+///
+/// [`with_capacity`]: Self::with_capacity
+/// [`add_column`]: Self::add_column
+/// [`build`]: Self::build
+pub(crate) struct TableBuilder {
+    columns: SparseSet<ComponentId, Column>,
+    capacity: usize,
+}
+
+impl TableBuilder {
+    /// Creates a blank [`Table`], allocating space for `column_capacity` columns
+    /// with the capacity to hold `capacity` entities worth of components each.
+    pub fn with_capacity(capacity: usize, column_capacity: usize) -> Self {
+        Self {
+            columns: SparseSet::with_capacity(column_capacity),
+            capacity,
+        }
+    }
+
+    #[must_use]
+    pub fn add_column(mut self, component_info: &ComponentInfo) -> Self {
+        self.columns.insert(
+            component_info.id(),
+            Column::with_capacity(component_info, self.capacity),
+        );
+        self
+    }
+
+    #[must_use]
+    pub fn build(self) -> Table {
+        Table {
+            columns: self.columns.into_immutable(),
+            entities: Vec::with_capacity(self.capacity),
+        }
+    }
 }
 
 /// Table 中保存 Entity的Archetype数据\
@@ -314,7 +369,7 @@ impl Column {
 #[derive(Debug)]
 pub(crate) struct Table {
     /// #note : 你在任何情况都不应该添加key或删除key, Table被构造后就是对应于固定的原型
-    columns: HashMap<ComponentId, Column>,
+    columns: ImmutableSparseSet<ComponentId, Column>,
     /// 存储在当前Table的Entity
     entities: Vec<Entity>,
 }
@@ -361,7 +416,7 @@ impl Table {
     /// [`Component`]: crate::component::Component
     #[inline]
     pub fn get_column(&self, component_id: ComponentId) -> Option<&Column> {
-        self.columns.get(&component_id)
+        self.columns.get(component_id)
     }
 
     /// Fetches a mutable reference to the [`Column`] for a given [`Component`] within the
@@ -375,7 +430,7 @@ impl Table {
         &mut self,
         component_id: ComponentId,
     ) -> Option<&mut Column> {
-        self.columns.get_mut(&component_id)
+        self.columns.get_mut(component_id)
     }
 
     /// 扩展剩余容量
@@ -445,6 +500,36 @@ impl Tables {
     pub fn get(&self, id: TableId) -> Option<&Table> {
         self.tables.get(id.as_usize())
     }
+
+    /// Attempts to fetch a table based on the provided components,
+    /// creating and returning a new [`Table`] if one did not already exist.
+    ///
+    /// # Safety
+    /// `component_ids` must contain components that exist in `components`
+    pub(crate) unsafe fn get_id_or_insert(
+        &mut self,
+        component_ids: &[ComponentId],
+        components: &Components,
+    ) -> TableId {
+        let tables = &mut self.tables;
+        let (_key, value) = self
+            .table_ids  
+            .raw_entry_mut()
+            .from_key(component_ids)
+            .or_insert_with(|| {
+                let mut table =
+                    TableBuilder::with_capacity(0, component_ids.len());
+                for component_id in component_ids {
+                    table = table.add_column(
+                        components.get_info_unchecked(*component_id),
+                    );
+                }
+                tables.push(table.build());
+                (component_ids.into(), TableId::from_usize(tables.len() - 1))
+            });
+
+        *value
+    }   
 }
 
 impl Index<TableId> for Tables {
