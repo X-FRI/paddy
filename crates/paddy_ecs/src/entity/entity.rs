@@ -6,10 +6,13 @@ use std::{
     sync::atomic::{AtomicIsize, Ordering},
 };
 
-use crate::archetype::{ArchetypeId, ArchetypeRow};
 use table::{TableId, TableRow};
 
-use crate::{storage::table, world::World};
+use crate::{
+    archetype::{ArchetypeId, ArchetypeRow},
+    storage::table,
+    world::World,
+};
 
 pub(crate) type EntityId = u32;
 /// Id 重分配后 标识于前Entity的不同

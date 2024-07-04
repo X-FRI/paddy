@@ -1,6 +1,5 @@
-use crate::{bundle::BundleId, storage::sparse_set::SparseArray};
-
 use super::ArchetypeId;
+use crate::{bundle::BundleId, storage::sparse_set::SparseArray};
 
 /// Archetypes and bundles form a graph. Adding or removing a bundle moves
 /// an [`Entity`] to a new [`Archetype`].
@@ -51,7 +50,7 @@ impl Edges {
         self.add_bundle.get(bundle_id)
     }
 
-        /// Caches the target archetype when adding a bundle to the source archetype.
+    /// Caches the target archetype when adding a bundle to the source archetype.
     /// For more information, see [`EntityWorldMut::insert`].
     ///
     /// [`EntityWorldMut::insert`]: crate::world::EntityWorldMut::insert
@@ -117,4 +116,3 @@ impl BundleComponentStatus for SpawnBundleStatus {
         ComponentStatus::Added
     }
 }
-

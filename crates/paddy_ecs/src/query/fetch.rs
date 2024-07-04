@@ -2,9 +2,8 @@ use std::cell::UnsafeCell;
 
 use paddy_ptr::ThinSlicePtr;
 
-use crate::storage::sparse_set::ComponentSparseSet;
-
 use super::WorldQuery;
+use crate::storage::sparse_set::ComponentSparseSet;
 
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not valid to request as data in a `Query`",
@@ -26,8 +25,6 @@ pub unsafe trait ReadOnlyQueryData: QueryData<ReadOnly = Self> {}
 pub type QueryItem<'w, Q> = <Q as WorldQuery>::Item<'w>;
 /// The read-only variant of the item type returned when a [`QueryData`] is iterated over immutably
 pub type ROQueryItem<'w, D> = QueryItem<'w, <D as QueryData>::ReadOnly>;
-
-
 
 #[doc(hidden)]
 pub struct ReadFetch<'w, T> {

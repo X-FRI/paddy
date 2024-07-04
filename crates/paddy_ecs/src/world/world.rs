@@ -3,16 +3,15 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
+use super::unsafe_world_cell::UnsafeWorldCell;
 use crate::{
+    archetype::Archetypes,
     bundle::{Bundle, BundleSpawner, Bundles},
     component::{tick::Tick, Component, ComponentId, Components},
-    entity::{ Entities, Entity, EntityBuilder},
+    entity::{Entities, Entity, EntityBuilder},
     query::{fetch::QueryData, filter::QueryFilter, state::QueryState},
     storage::Storages,
-    archetype::Archetypes,
 };
-
-use super::unsafe_world_cell::UnsafeWorldCell;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct WorldId(u32);

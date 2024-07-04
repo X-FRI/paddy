@@ -5,17 +5,16 @@ use std::{
     ops::{Index, IndexMut, RangeFrom},
 };
 
+use super::Edges;
 use crate::{
     component::{ComponentId, Components},
-    storage::{sparse_set::{ImmutableSparseSet, SparseSet}, StorageType},
-};
-
-use crate::{
     entity::{Entity, EntityId, EntityLocation},
-    storage::table::{TableId, TableRow},
+    storage::{
+        sparse_set::{ImmutableSparseSet, SparseSet},
+        table::{TableId, TableRow},
+        StorageType,
+    },
 };
-
-use super::Edges;
 
 /// [`Archetype::entities`] 的下标,指向Entity
 ///
@@ -157,12 +156,14 @@ impl Archetype {
         id: ArchetypeId,
         table_id: TableId,
         table_components: impl Iterator<Item = (ComponentId, ArchetypeComponentId)>,
-        sparse_set_components: impl Iterator<Item = (ComponentId, ArchetypeComponentId)>,
+        sparse_set_components: impl Iterator<
+            Item = (ComponentId, ArchetypeComponentId),
+        >,
     ) -> Self {
         let (min_table, _) = table_components.size_hint();
         let (min_sparse, _) = sparse_set_components.size_hint();
         // let mut flags = ArchetypeFlags::empty();
-        let mut archetype_components = 
+        let mut archetype_components =
             SparseSet::with_capacity(min_table + min_sparse);
         for (component_id, archetype_component_id) in table_components {
             // SAFETY: We are creating an archetype that includes this component so it must exist

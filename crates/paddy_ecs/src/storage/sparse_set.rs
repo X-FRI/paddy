@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use nonmax::NonMaxUsize;
 use paddy_ptr::{OwningPtr, Ptr};
 
+use super::table::{Column, TableRow};
 use crate::{
     component::{
         tick::{ComponentTicks, Tick},
@@ -11,8 +12,6 @@ use crate::{
     },
     entity::Entity,
 };
-
-use super::table::{Column, TableRow};
 
 /// Represents something that can be stored in a [`SparseSet`] as an integer.\
 /// 表示可以作为整数存储在 [`SparseSet`] 中的某种类型
@@ -141,7 +140,6 @@ macro_rules! impl_sparse_set {
 impl_sparse_set!(SparseSet);
 impl_sparse_set!(ImmutableSparseSet);
 
-
 type EntityIndex = u32;
 
 #[derive(Debug)]
@@ -217,7 +215,6 @@ pub(crate) struct ImmutableSparseArray<I, V = I> {
     values: Box<[Option<V>]>,
     marker: PhantomData<I>,
 }
-
 
 /// 一个稀疏的数据结构，用于存储 [`Component`](crate::component::Component)
 ///

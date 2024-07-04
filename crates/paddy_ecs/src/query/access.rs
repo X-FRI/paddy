@@ -1,5 +1,3 @@
-
-
 /// Type of access a [`Query`] may have to an [`Archetype`]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Access {

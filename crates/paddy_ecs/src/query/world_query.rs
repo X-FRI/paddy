@@ -1,9 +1,9 @@
 use crate::{
+    archetype::Archetype,
     component::{tick::Tick, ComponentId, Components},
-    entity::{ Entity},
+    entity::Entity,
     storage::table::{Table, TableRow},
     world::{unsafe_world_cell::UnsafeWorldCell, World},
-    archetype::Archetype
 };
 
 pub unsafe trait WorldQuery {
@@ -186,7 +186,8 @@ pub mod impl_world_query {
 
     use super::*;
     use crate::{
-        _todo, component::Component, debug::DebugCheckedUnwrap, query::fetch, storage::StorageType
+        _todo, component::Component, debug::DebugCheckedUnwrap, query::fetch,
+        storage::StorageType,
     };
 
     unsafe impl<T: Component> WorldQuery for &T {
@@ -330,7 +331,7 @@ pub mod impl_world_query {
         ) -> Self::Fetch<'w> {
         }
 
-        const IS_DENSE: bool= true;
+        const IS_DENSE: bool = true;
 
         unsafe fn set_archetype<'w>(
             _fetch: &mut Self::Fetch<'w>,
@@ -355,8 +356,7 @@ pub mod impl_world_query {
             entity
         }
 
-        fn init_state(_world: &mut World) -> Self::State {
-        }
+        fn init_state(_world: &mut World) -> Self::State {}
 
         fn get_state(_components: &Components) -> Option<Self::State> {
             Some(())
@@ -369,5 +369,4 @@ pub mod impl_world_query {
             true
         }
     }
-
 }

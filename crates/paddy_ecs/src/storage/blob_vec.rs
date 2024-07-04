@@ -47,9 +47,17 @@ impl BlobVec {
     }
 
     /// capacity : 初始容量(仅对于非ZST类型),ZST为usize::MAX
-    pub unsafe fn new(item_layout: Layout, drop: Option<DropFn>, capacity: usize) -> BlobVec {
-        let align = NonZeroUsize::new(item_layout.align()).expect("alignment must be > 0");
-        debug_assert!(align.is_power_of_two(), "Alignment must be power of two.");
+    pub unsafe fn new(
+        item_layout: Layout,
+        drop: Option<DropFn>,
+        capacity: usize,
+    ) -> BlobVec {
+        let align = NonZeroUsize::new(item_layout.align())
+            .expect("alignment must be > 0");
+        debug_assert!(
+            align.is_power_of_two(),
+            "Alignment must be power of two."
+        );
         // 延迟初始化 (当前给予的是无效地址)
         let data = unsafe { NonNull::new_unchecked(align.get() as *mut u8) };
         if item_layout.size() == 0 {
@@ -82,7 +90,9 @@ impl BlobVec {
         let available_space = self.capacity - self.len;
         if available_space < additional {
             // #safety : available_space < additional ==> additional - available_space > 0
-            let increment = unsafe { NonZeroUsize::new_unchecked(additional - available_space) };
+            let increment = unsafe {
+                NonZeroUsize::new_unchecked(additional - available_space)
+            };
             self.grow_exact(increment);
         }
     }
@@ -95,7 +105,8 @@ impl BlobVec {
         // 写一个内部函数 似乎是 bevy_ecs 的一种优化 (看不懂...)
         #[cold]
         fn do_reserve(slf: &mut BlobVec, additional: usize) {
-            let increment = slf.capacity.max(additional - (slf.capacity - slf.len));
+            let increment =
+                slf.capacity.max(additional - (slf.capacity - slf.len));
             let increment = NonZeroUsize::new(increment).unwrap();
             slf.grow_exact(increment);
         }
@@ -109,8 +120,8 @@ impl BlobVec {
             .capacity
             .checked_add(increment.get())
             .expect("capacity overflow");
-        let new_layout =
-            array_layout(&self.item_layout, new_capacity).expect("array layout should be valid");
+        let new_layout = array_layout(&self.item_layout, new_capacity)
+            .expect("array layout should be valid");
         let new_data = if self.capacity == 0 {
             // 之前容量为0,说明未被初始化,直接进行初始化即可
             // SAFETY:
@@ -134,7 +145,8 @@ impl BlobVec {
             }
         };
 
-        self.data = NonNull::new(new_data).unwrap_or_else(|| handle_alloc_error(new_layout));
+        self.data = NonNull::new(new_data)
+            .unwrap_or_else(|| handle_alloc_error(new_layout));
         self.capacity = new_capacity;
     }
 
@@ -144,10 +156,18 @@ impl BlobVec {
     /// - 注意index应该在 非剩余容量的空间 内
     /// - @`value` 应该指向被擦出类型前的类型
     #[inline]
-    pub unsafe fn initialize_unchecked(&mut self, index: usize, value: OwningPtr<'_>) {
+    pub unsafe fn initialize_unchecked(
+        &mut self,
+        index: usize,
+        value: OwningPtr<'_>,
+    ) {
         debug_assert!(index < self.len());
         let ptr = self.get_unchecked(index);
-        std::ptr::copy_nonoverlapping::<u8>(value.as_ptr(), ptr.as_ptr(), self.item_layout.size());
+        std::ptr::copy_nonoverlapping::<u8>(
+            value.as_ptr(),
+            ptr.as_ptr(),
+            self.item_layout.size(),
+        );
     }
 
     /// 将 `index` 位置的值替换为 `value`
@@ -161,12 +181,17 @@ impl BlobVec {
     /// # Note
     /// - 此函数不会进行边界检查
     ///
-    pub unsafe fn replace_unchecked(&mut self, index: usize, value: OwningPtr<'_>) {
+    pub unsafe fn replace_unchecked(
+        &mut self,
+        index: usize,
+        value: OwningPtr<'_>,
+    ) {
         debug_assert!(index < self.len());
 
         // 获取将被替换的 vec 中的值的指针
         // SAFETY: The caller ensures that `index` fits in this vector.
-        let destination = NonNull::from(unsafe { self.get_unchecked_mut(index) });
+        let destination =
+            NonNull::from(unsafe { self.get_unchecked_mut(index) });
         let source = value.as_ptr();
 
         if let Some(drop) = self.drop {
@@ -255,7 +280,10 @@ impl BlobVec {
     /// It is the caller's responsibility to ensure that `index` is less than `self.len()`.
     #[inline]
     #[must_use = "The returned pointer should be used to dropped the removed element"]
-    pub unsafe fn swap_remove_and_forget_unchecked(&mut self, index: usize) -> OwningPtr<'_> {
+    pub unsafe fn swap_remove_and_forget_unchecked(
+        &mut self,
+        index: usize,
+    ) -> OwningPtr<'_> {
         debug_assert!(index < self.len());
         // 由于 `index` 必须严格小于 `self.len` 且 `index` 至少为零，
         // 因此 `self.len` 必须至少为一。这样的话，不会下溢。
@@ -290,12 +318,20 @@ impl BlobVec {
     /// 调用者有责任确保 `index` 小于 `self.len()`
     /// 并且 `self[index]` 已经正确初始化。
     #[inline]
-    pub unsafe fn swap_remove_unchecked(&mut self, index: usize, ptr: PtrMut<'_>) {
+    pub unsafe fn swap_remove_unchecked(
+        &mut self,
+        index: usize,
+        ptr: PtrMut<'_>,
+    ) {
         debug_assert!(index < self.len());
         let last = self.get_unchecked_mut(self.len - 1).as_ptr();
         let target = self.get_unchecked_mut(index).as_ptr();
         // 将 index 处的项复制到提供的 ptr 中
-        std::ptr::copy_nonoverlapping::<u8>(target, ptr.as_ptr(), self.item_layout.size());
+        std::ptr::copy_nonoverlapping::<u8>(
+            target,
+            ptr.as_ptr(),
+            self.item_layout.size(),
+        );
         // Recompress the storage by moving the previous last element into the
         // now-free row overwriting the previous data. The removed row may be the last
         // one so a non-overlapping copy must not be used here.
@@ -336,7 +372,12 @@ impl BlobVec {
 
     /// 获取 非剩余容量空间 的切片
     pub unsafe fn get_slice<T>(&self) -> &[UnsafeCell<T>] {
-        unsafe { std::slice::from_raw_parts(self.data.as_ptr() as *const UnsafeCell<T>, self.len) }
+        unsafe {
+            std::slice::from_raw_parts(
+                self.data.as_ptr() as *const UnsafeCell<T>,
+                self.len,
+            )
+        }
     }
 
     /// #plan : remove the function
@@ -353,7 +394,8 @@ impl BlobVec {
         if let Some(drop) = self.drop {
             let size = self.item_layout.size();
             for i in 0..len {
-                let item = unsafe { self.get_ptr_mut().byte_add(i * size).promote() };
+                let item =
+                    unsafe { self.get_ptr_mut().byte_add(i * size).promote() };
                 unsafe { drop(item) };
             }
         }
@@ -374,8 +416,8 @@ impl std::fmt::Debug for BlobVec {
 impl Drop for BlobVec {
     fn drop(&mut self) {
         self.clear();
-        let array_layout =
-            array_layout(&self.item_layout, self.capacity).expect("array layout should be valid");
+        let array_layout = array_layout(&self.item_layout, self.capacity)
+            .expect("array layout should be valid");
         if array_layout.size() > 0 {
             // SAFETY: data ptr layout is correct, swap_scratch ptr layout is correct
             unsafe {
@@ -401,7 +443,8 @@ fn repeat_layout(layout: &Layout, n: usize) -> Option<(Layout, usize)> {
     // > `size`, 当四舍五入到 `align` 的最接近倍数时，
     // > 不得溢出 (即，四舍五入的值必须小于
     // > `usize::MAX`)
-    let padded_size = layout.size() + padding_needed_for(layout, layout.align());
+    let padded_size =
+        layout.size() + padding_needed_for(layout, layout.align());
     let alloc_size = padded_size.checked_mul(n)?;
 
     // #safety : 已知 self.align 是有效的，并且 alloc_size 已被填充。
@@ -441,8 +484,7 @@ pub const fn padding_needed_for(layout: &Layout, align: usize) -> usize {
     // (当然，尝试以上述方式分配其大小和填充溢出的内存块无论如何都会导致分配器产生错误。)
     //
 
-    let len_rounded_up = len.wrapping_add(align).wrapping_sub(1) & !align.wrapping_sub(1);
+    let len_rounded_up =
+        len.wrapping_add(align).wrapping_sub(1) & !align.wrapping_sub(1);
     len_rounded_up.wrapping_sub(len)
 }
-
-

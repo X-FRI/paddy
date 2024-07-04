@@ -3,14 +3,13 @@ use std::ptr;
 
 use fixedbitset::FixedBitSet;
 
+use super::{fetch::QueryData, filter::QueryFilter, iter::QueryIter};
 use crate::{
+    archetype::{Archetype, ArchetypeGeneration, ArchetypeId},
     component::{tick::Tick, ComponentId},
     storage::table::TableId,
     world::{unsafe_world_cell::UnsafeWorldCell, World, WorldId},
 };
-use crate::archetype::{Archetype, ArchetypeGeneration, ArchetypeId};
-
-use super::{fetch::QueryData, filter::QueryFilter, iter::QueryIter};
 
 /// An ID for either a table or an archetype. Used for Query iteration.
 ///
@@ -83,7 +82,6 @@ impl<D: QueryData, F: QueryFilter> QueryState<D, F> {
         unsafe { self.as_transmuted_state::<D::ReadOnly, F>() }
     }
 
-
     /// Converts this `QueryState` reference to any other `QueryState` with
     /// the same `WorldQuery::State` associated types.
     ///
@@ -101,8 +99,6 @@ impl<D: QueryData, F: QueryFilter> QueryState<D, F> {
     ) -> &QueryState<NewD, NewF> {
         &*ptr::from_ref(self).cast::<QueryState<NewD, NewF>>()
     }
-
-
 
     /// Returns the tables matched by this query.
     pub fn matched_tables(&self) -> impl Iterator<Item = TableId> + '_ {
@@ -288,7 +284,7 @@ impl<D: QueryData, F: QueryFilter> QueryState<D, F> {
         }
     }
 
-        /// Returns an [`Iterator`] for the given [`World`], where the last change and
+    /// Returns an [`Iterator`] for the given [`World`], where the last change and
     /// the current change tick are given.
     ///
     /// This iterator is always guaranteed to return results from each matching entity once and only once.

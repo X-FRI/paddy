@@ -1,8 +1,5 @@
-use crate::{entity::Entity, storage::table::TableRow};
-
 use super::WorldQuery;
-
-
+use crate::{entity::Entity, storage::table::TableRow};
 
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid `Query` filter",

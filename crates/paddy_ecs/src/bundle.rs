@@ -6,13 +6,18 @@ use std::{
 
 use paddy_ptr::{ConstNonNull, OwningPtr};
 
-use crate::{archetype::{Archetype, ArchetypeId, Archetypes, BundleComponentStatus, SpawnBundleStatus}, debug::DebugCheckedUnwrap, storage::{sparse_set::SparseSets, table::TableRow}};
 use crate::{
-    archetype::ComponentStatus,
+    archetype::{
+        Archetype, ArchetypeId, Archetypes, BundleComponentStatus,
+        ComponentStatus, SpawnBundleStatus,
+    },
     component::{tick::Tick, ComponentId, Components},
+    debug::DebugCheckedUnwrap,
     entity::{Entity, EntityLocation},
     storage::{
-        sparse_set::SparseSetIndex, table::Table, StorageType, Storages,
+        sparse_set::{SparseSetIndex, SparseSets},
+        table::{Table, TableRow},
+        StorageType, Storages,
     },
     world::{unsafe_world_cell::UnsafeWorldCell, World},
 };
@@ -264,11 +269,11 @@ impl BundleInfo {
     #[allow(clippy::too_many_arguments)]
     unsafe fn write_components<T: DynamicBundle, S: BundleComponentStatus>(
         &self,
-        table: &mut Table,  
+        table: &mut Table,
         sparse_sets: &mut SparseSets,
         bundle_component_status: &S,
         entity: Entity,
-        table_row: TableRow,    
+        table_row: TableRow,
         change_tick: Tick,
         bundle: T,
     ) {

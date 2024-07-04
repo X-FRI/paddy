@@ -2,7 +2,6 @@ use std::cell::UnsafeCell;
 
 use paddy_ptr::UnsafeCellDeref;
 
-
 /// The (arbitrarily chosen) minimum number of world tick increments between `check_tick` scans.
 ///
 /// Change ticks can only be scanned when systems aren't running. Thus, if the threshold is `N`,
@@ -131,7 +130,7 @@ impl<'a> TickCells<'a> {
 /// Records when a component or resource was added and when it was last mutably dereferenced (or added).\
 /// 记录一个组件或资源的 添加时间 和 最后一次被 可变引用（或添加）的时间
 #[derive(Copy, Clone, Debug)]
-pub struct ComponentTicks { 
+pub struct ComponentTicks {
     pub(crate) added: Tick,
     pub(crate) changed: Tick,
 }
@@ -194,4 +193,3 @@ impl ComponentTicks {
         self.changed = change_tick;
     }
 }
-

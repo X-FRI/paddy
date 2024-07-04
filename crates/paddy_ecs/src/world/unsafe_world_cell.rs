@@ -1,9 +1,7 @@
 use std::{cell::UnsafeCell, fmt::Debug, marker::PhantomData, ptr};
 
-use crate::{storage::Storages};
-use crate::archetype::Archetypes;
-
 use super::{World, WorldId};
+use crate::{archetype::Archetypes, storage::Storages};
 
 /// Variant of the [`World`] where resource and component accesses take `&self`, and the responsibility to avoid
 /// aliasing violations are given to the caller instead of being checked at compile-time by rust's unique XOR shared rule.

@@ -8,17 +8,15 @@ use std::{
 use paddy_ptr::{OwningPtr, Ptr, PtrMut};
 use paddy_utils::hash::HashMap;
 
+use super::sparse_set::{ImmutableSparseSet, SparseSet};
 use crate::{
     component::{
         tick::{ComponentTicks, Tick},
         ComponentId, ComponentInfo, Components,
     },
+    entity::Entity,
     storage::blob_vec::BlobVec,
 };
-
-use crate::entity::Entity;
-
-use super::sparse_set::{ImmutableSparseSet, SparseSet};
 
 /// 在一个World中唯一的Table id (多World中不唯一)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -308,7 +306,6 @@ impl Column {
     }
 }
 
-
 /// A builder type for constructing [`Table`]s.
 ///
 ///  - Use [`with_capacity`] to initialize the builder.
@@ -513,7 +510,7 @@ impl Tables {
     ) -> TableId {
         let tables = &mut self.tables;
         let (_key, value) = self
-            .table_ids  
+            .table_ids
             .raw_entry_mut()
             .from_key(component_ids)
             .or_insert_with(|| {
@@ -529,7 +526,7 @@ impl Tables {
             });
 
         *value
-    }   
+    }
 }
 
 impl Index<TableId> for Tables {
