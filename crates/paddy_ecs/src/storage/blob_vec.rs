@@ -28,19 +28,22 @@ pub(crate) struct BlobVec {
 }
 
 impl BlobVec {
+    /// @return 当前元素数量
     #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
-    /// true : is empty
+    /// @return true : is empty
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
+    /// @return 当前BlobVec容量
     #[inline]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
+    /// @return 元素内存布局信息
     #[inline]
     pub fn layout(&self) -> Layout {
         self.item_layout
@@ -96,6 +99,7 @@ impl BlobVec {
             self.grow_exact(increment);
         }
     }
+
     /// 将剩余容量扩展到 max{ additional , capacity + 剩余容量 } 大小\
     /// 若 剩余容量>=additional 则 啥也不做
     ///
@@ -114,6 +118,7 @@ impl BlobVec {
             do_reserve(self, additional);
         }
     }
+    
     /// 增加increment多的容量
     fn grow_exact(&mut self, increment: NonZeroUsize) {
         let new_capacity = self
@@ -242,7 +247,7 @@ impl BlobVec {
         }
     }
 
-    /// 向尾部添加一个值
+    /// 向BlobVec尾部添加一个值
     #[inline]
     pub unsafe fn push(&mut self, value: OwningPtr<'_>) {
         self.reserve(1);
@@ -251,13 +256,16 @@ impl BlobVec {
         self.initialize_unchecked(index, value);
     }
 
-    ///
+    /// 直接设置 当前元素数量
     #[inline]
     pub unsafe fn set_len(&mut self, len: usize) {
         debug_assert!(len <= self.capacity());
         self.len = len;
     }
-
+    
+    /// 获取对应下标(index)中的值 的不可变指针
+    /// 
+    /// @return 不可变指针
     #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> Ptr<'_> {
         debug_assert!(index < self.len());
@@ -265,6 +273,9 @@ impl BlobVec {
         unsafe { self.get_ptr().byte_add(index * size) }
     }
 
+    /// 获取对应下标(index)中的值 的可变指针
+    /// 
+    /// @return 可变指针
     #[inline]
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> PtrMut<'_> {
         debug_assert!(index < self.len());
@@ -378,13 +389,6 @@ impl BlobVec {
                 self.len,
             )
         }
-    }
-
-    /// #plan : remove the function
-    #[inline]
-    unsafe fn deref<T>(&self, index: usize) -> &T {
-        let ptr = self.get_unchecked(index).as_ptr().cast::<T>();
-        unsafe { &*ptr }
     }
 
     /// 释放所有元素数据,但容量不变

@@ -1,14 +1,9 @@
-use std::{
-    alloc::Layout,
-    any::TypeId,
-    collections::HashMap,
-    ops::{Index, IndexMut, RangeFrom},
-};
+use std::ops::{Index, IndexMut, RangeFrom};
 
 use super::Edges;
 use crate::{
     component::{ComponentId, Components},
-    entity::{Entity, EntityId, EntityLocation},
+    entity::{Entity, EntityLocation},
     storage::{
         sparse_set::{ImmutableSparseSet, SparseSet},
         table::{TableId, TableRow},
@@ -122,6 +117,15 @@ impl ArchetypeEntity {
     }
 }
 
+/// 从 [`Archetype`] 中移除 [`Entity`] 的内部元数据
+pub(crate) struct ArchetypeSwapRemoveResult {
+    /// 如果 [`Entity`] 不是 [`Archetype`] 中的最后一个，它会被通过与最后一个实体交换来移除,
+    /// 在这种情况下，这个字段包含被交换的实体(不是被移除的实体)
+    pub(crate) swapped_entity: Option<Entity>,
+    /// 被移除实体的组件在 [`Table`] 中存储的位置 [`TableRow`]
+    pub(crate) table_row: TableRow,
+}
+
 /// 给定 [`Archetype`] 中 [`Component`] 的 内部元数据
 #[derive(Debug)]
 pub(crate) struct ArchetypeComponentInfo {
@@ -145,14 +149,16 @@ pub(crate) struct Archetype {
     /// Archetype 对应的 Table
     table_id: TableId,
     edges: Edges,
+    /// 下标是 ArchetypeRow
     entities: Vec<ArchetypeEntity>,
     /// 一旦Archetype被构造后,这个字段就不可变
     components: ImmutableSparseSet<ComponentId, ArchetypeComponentInfo>,
 }
 
 impl Archetype {
+    ///
     pub(crate) fn new(
-        components: &Components,
+        _components: &Components,
         id: ArchetypeId,
         table_id: TableId,
         table_components: impl Iterator<Item = (ComponentId, ArchetypeComponentId)>,
@@ -167,7 +173,7 @@ impl Archetype {
             SparseSet::with_capacity(min_table + min_sparse);
         for (component_id, archetype_component_id) in table_components {
             // SAFETY: We are creating an archetype that includes this component so it must exist
-            let info = unsafe { components.get_info_unchecked(component_id) };
+            // let info = unsafe { components.get_info_unchecked(component_id) };
             // info.update_archetype_flags(&mut flags);
             archetype_components.insert(
                 component_id,
@@ -180,7 +186,7 @@ impl Archetype {
 
         for (component_id, archetype_component_id) in sparse_set_components {
             // SAFETY: We are creating an archetype that includes this component so it must exist
-            let info = unsafe { components.get_info_unchecked(component_id) };
+            // let info = unsafe { components.get_info_unchecked(component_id) };
             // info.update_archetype_flags(&mut flags);
             archetype_components.insert(
                 component_id,
@@ -200,84 +206,130 @@ impl Archetype {
         }
     }
 
-    /// Fetches the ID for the archetype.
+    /// 获取 `archetype` 的 ID
     #[inline]
     pub fn id(&self) -> ArchetypeId {
         self.id
     }
-    /// Fetches the archetype's [`Table`] ID.
-    ///
-    /// [`Table`]: crate::storage::Table
+    /// 获取 `archetype` 的 [`TableId`]
     #[inline]
     pub fn table_id(&self) -> TableId {
         self.table_id
     }
-    /// Fetches the entities contained in this archetype.
+    /// 获取此 `archetype` 中包含的所有Entity
     #[inline]
     pub fn entities(&self) -> &[ArchetypeEntity] {
         &self.entities
     }
-    /// Gets the total number of entities that belong to the archetype.
+    /// 获取 属于当前`archetype` 的Entity数量
     #[inline]
     pub fn len(&self) -> usize {
         self.entities.len()
     }
 
-    /// Checks if the archetype has any entities.
+    /// 检查 `archetype` 是否包含Entity,一个Entity都没有,则返回true
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.entities.is_empty()
     }
 
     /// Fetches a immutable reference to the archetype's [`Edges`], a cache of
-    /// archetypal relationships.
+    /// archetypal relationships.\
+    /// 获取 `archetype` 的 [`Edges`] 的不可变引用，它是 `archetypal relationships` 的缓存
     #[inline]
     pub fn edges(&self) -> &Edges {
         &self.edges
     }
 
     /// Fetches a mutable reference to the archetype's [`Edges`], a cache of
-    /// archetypal relationships.
+    /// archetypal relationships.\
+    /// 获取 `archetype` 的 [`Edges`] 的可变引用，它是 `archetypal relationships` 的缓存
     #[inline]
     pub(crate) fn edges_mut(&mut self) -> &mut Edges {
         &mut self.edges
     }
 
-    /// Checks if the archetype contains a specific component. This runs in `O(1)` time.
+    /// 检查 `archetype` 是否包含特定的组件
+    ///
+    /// 此操作时间复杂度为 `O(1)`
     #[inline]
     pub fn contains(&self, component_id: ComponentId) -> bool {
         self.components.contains(component_id)
     }
 
-    /// Gets an iterator of all of the components in the archetype.
+    /// 获取 `archetype` 中所有组件的迭代器。
     ///
-    /// All of the IDs are unique.
+    /// 所有的 ID 都是唯一的
     #[inline]
     pub fn components(&self) -> impl Iterator<Item = ComponentId> + '_ {
         self.components.indices()
     }
 
-    /// Returns the total number of components in the archetype
+    /// 返回 `archetype` 中组件的总数量
     #[inline]
     pub fn component_count(&self) -> usize {
         self.components.len()
     }
 
-    /// Gets an iterator of all of the components stored in [`Table`]s.
+    /// 通过[`ComponentId`] 获取 `archetype` 中某个组件的[`StorageType`]
     ///
-    /// All of the IDs are unique.
+    /// 如果该组件不是 `archetype` 的一部分，返回 `None`
     ///
-    /// [`Table`]: crate::storage::Table
+    /// 此操作时间复杂度为 `O(1)`
     #[inline]
-    pub fn table_components(&self) -> impl Iterator<Item = ComponentId> + '_ {
-        self.components.iter().map(|(id, _)| *id)
+    pub fn get_storage_type(
+        &self,
+        component_id: ComponentId,
+    ) -> Option<StorageType> {
+        self.components
+            .get(component_id)
+            .map(|info| info.storage_type)
     }
 
-    /// Updates if the components for the entity at `index` can be found
-    /// in the corresponding table.
+    /// 获取 `archetype` 中某个组件的对应 [`ArchetypeComponentId`]
+    ///
+    /// 如果该组件不是 `archetype` 的一部分，返回 `None`
+    ///
+    /// 此操作时间复杂度为 `O(1)`
+    #[inline]
+    pub fn get_archetype_component_id(
+        &self,
+        component_id: ComponentId,
+    ) -> Option<ArchetypeComponentId> {
+        self.components
+            .get(component_id)
+            .map(|info| info.archetype_component_id)
+    }
+
+    /// 获取所有存储在 [`Table`] 中的Component 的 ComponentId的迭代器
+    ///
+    /// 所有的 ID 都是唯一的
+    #[inline]
+    pub fn table_components(&self) -> impl Iterator<Item = ComponentId> + '_ {
+        self.components
+            .iter()
+            .filter(|(_, component)| {
+                component.storage_type == StorageType::Table
+            })
+            .map(|(id, _)| *id)
+    }
+
+    /// 获取 `row` 处实体的组件存储在 [`Table`] 中的行
+    ///
+    /// 可以从 [`EntityLocation::archetype_row`] 中获取实体的 `archetype` 行，
+    /// 该行可以从 [`Entities::get`] 中检索到
+    ///
+    /// # Panic
+    /// 如果 `index >= self.len()`，此函数会导致 panic
+    #[inline]
+    pub fn entity_table_row(&self, row: ArchetypeRow) -> TableRow {
+        self.entities[row.index()].table_row
+    }
+
+    /// 修改 在`row`处的实体的组件 的 table_row
     ///
     /// # Panics
-    /// This function will panic if `index >= self.len()`.
+    /// 如果 `index >= self.len()`，此函数会导致 panic
     #[inline]
     pub(crate) fn set_entity_table_row(
         &mut self,
@@ -286,11 +338,12 @@ impl Archetype {
     ) {
         self.entities[row.index()].table_row = table_row;
     }
-    /// Allocates an entity to the archetype.
+
+    /// 给 `archetype` 分配一个Entity
     ///
     /// # Safety
-    /// valid component values must be immediately written to the relevant storages
-    /// `table_row` must be valid
+    /// 有效的组件值必须立即写入相关的Storage
+    /// `table_row` 必须有效 且对应正确的Entity
     #[inline]
     pub(crate) unsafe fn allocate(
         &mut self,
@@ -313,11 +366,33 @@ impl Archetype {
         self.entities.reserve(additional);
     }
 
-    /// Gets an iterator of all of the components stored in [`ComponentSparseSet`]s.
+    /// 通过交换移除 `index` 处的Entity
     ///
-    /// All of the IDs are unique.
+    /// 返回 被替换的Entity(并非是被移除的) 和 被移除Entity的TableRow
     ///
-    /// [`ComponentSparseSet`]: crate::storage::ComponentSparseSet
+    /// # Panic
+    /// 如果 `index >= self.len()`，此函数会导致 panic
+    #[inline]
+    pub(crate) fn swap_remove(
+        &mut self,
+        row: ArchetypeRow,
+    ) -> ArchetypeSwapRemoveResult {
+        let is_last = row.index() == self.entities.len() - 1;
+        let entity = self.entities.swap_remove(row.index());
+        ArchetypeSwapRemoveResult {
+            swapped_entity: if is_last {
+                None
+            } else {
+                Some(self.entities[row.index()].entity)
+            },
+            table_row: entity.table_row,
+        }
+    }
+
+    /// 获取所有存储在 [`ComponentSparseSet`] 中的组件的迭代器,
+    /// 即 稀疏存储的ComponentId
+    ///
+    /// 所有的 ID 都是唯一的
     #[inline]
     pub fn sparse_set_components(
         &self,
@@ -329,13 +404,21 @@ impl Archetype {
             })
             .map(|(id, _)| *id)
     }
+    /// 清除 `archetype` 中的所有实体, 但不影响容量
+    pub(crate) fn clear_entities(&mut self) {
+        self.entities.clear();
+    }
 }
 
-#[derive(Debug,Default)]
+#[derive(Debug, Default)]
 pub(crate) struct Archetypes {
+    /// 下标是ArchetypeId
     archetypes: Vec<Archetype>,
+    /// 并非是Component数量,而是 所有Archetype中Component(不去重)的数量
+    ///
+    /// 为了分配 [`ArchetypeComponentId`]
     archetype_component_count: usize,
-    by_components: HashMap<ArchetypeComponents, ArchetypeId>,
+    by_components: paddy_utils::hash::HashMap<ArchetypeComponents, ArchetypeId>,
 }
 
 impl Archetypes {
@@ -358,25 +441,28 @@ impl Archetypes {
         archetypes
     }
 
-    /// Fetches an immutable reference to an [`Archetype`] using its
-    /// ID. Returns `None` if no corresponding archetype exists.
-    #[inline]
-    pub fn get(&self, id: ArchetypeId) -> Option<&Archetype> {
-        self.archetypes.get(id.index())
-    }
-
-    /// Returns the "generation", a handle to the current highest archetype ID.
-    ///
-    /// This can be used with the `Index` [`Archetypes`] implementation to
-    /// iterate over newly introduced [`Archetype`]s since the last time this
-    /// function was called.
+    /// 返回 当前最大的[`ArchetypeId`] (这个id还未被分配)
     #[inline]
     pub fn generation(&self) -> ArchetypeGeneration {
         let id = ArchetypeId::new(self.archetypes.len());
         ArchetypeGeneration(id)
     }
+    /// 获取World中的 [`Archetype`] 总数
+    #[inline]
+    #[allow(clippy::len_without_is_empty)] // 这个 vec 永远不会为空
+    pub fn len(&self) -> usize {
+        self.archetypes.len()
+    }
 
-    /// Fetches an mutable reference to the archetype without any components.
+    /// 获取没有任何组件的 `archetype` 的不可变引用
+    ///
+    /// `archetypes.get(ArchetypeId::EMPTY).unwrap()` 的简写
+    #[inline]
+    pub fn empty(&self) -> &Archetype {
+        // SAFETY: empty archetype always exists
+        unsafe { self.archetypes.get_unchecked(ArchetypeId::EMPTY.index()) }
+    }
+    /// 获取没有任何组件的 `archetype` 的可变引用
     #[inline]
     pub(crate) fn empty_mut(&mut self) -> &mut Archetype {
         // SAFETY: empty archetype always exists
@@ -386,12 +472,55 @@ impl Archetypes {
         }
     }
 
-    /// Gets the archetype id matching the given inputs or inserts a new one if it doesn't exist.
-    /// `table_components` and `sparse_set_components` must be sorted
+    /// 生成并存储一个新的 [`ArchetypeComponentId`]
+    ///
+    /// 这只是简单地增加计数器并返回新值
+    ///
+    /// # Panic
+    ///
+    /// 如果 `archetype component id` 溢出，将导致 panic
+    pub(crate) fn new_archetype_component_id(
+        &mut self,
+    ) -> ArchetypeComponentId {
+        let id = ArchetypeComponentId(self.archetype_component_count);
+        self.archetype_component_count = self
+            .archetype_component_count
+            .checked_add(1)
+            .expect("archetype_component_count overflow");
+        id
+    }
+    /// 使用其 ID 获取 [`Archetype`] 的不可变引用
+    ///
+    /// 如果没有对应的 `archetype` 存在，则返回 `None`
+    #[inline]
+    pub fn get(&self, id: ArchetypeId) -> Option<&Archetype> {
+        self.archetypes.get(id.index())
+    }
+    /// # Panic
+    ///
+    /// 如果 `a` 和 `b` 相等，将导致 panic
+    #[inline]
+    pub(crate) fn get_2_mut(
+        &mut self,
+        a: ArchetypeId,
+        b: ArchetypeId,
+    ) -> (&mut Archetype, &mut Archetype) {
+        if a.index() > b.index() {
+            let (b_slice, a_slice) = self.archetypes.split_at_mut(a.index());
+            (&mut a_slice[0], &mut b_slice[b.index()])
+        } else {
+            let (a_slice, b_slice) = self.archetypes.split_at_mut(b.index());
+            (&mut a_slice[a.index()], &mut b_slice[0])
+        }
+    }
+
+    /// 获取匹配给定输入的 [`ArchetypeId`]，如果不存在则插入一个新的
+    ///
+    /// `table_components` 和 `sparse_set_components` 必须是已排序的
     ///
     /// # Safety
-    /// [`TableId`] must exist in tables
-    /// `table_components` and `sparse_set_components` must exist in `components`
+    /// - [`TableId`] 必须存在于 `tables` 中
+    /// - `table_components` 和 `sparse_set_components`的ComponentId 必须存在于 `components` 中
     pub(crate) unsafe fn get_id_or_insert(
         &mut self,
         components: &Components,
@@ -436,6 +565,28 @@ impl Archetypes {
             },
         )
     }
+
+    /// 返回一个只读迭代器，遍历所有的 `archetypes`
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = &Archetype> {
+        self.archetypes.iter()
+    }
+
+    /// 返回存储在 `archetypes` 中的组件数量
+    /// 
+    /// 请注意，如果某个组件 `T` 存储在多个 `archetypes` 中，它会被计数多次
+    #[inline]
+    pub fn archetype_components_len(&self) -> usize {
+        self.archetype_component_count
+    }
+
+    /// 清除所有 `archetypes` 中的所有实体, 但不影响容量
+    pub(crate) fn clear_entities(&mut self) {
+        for archetype in &mut self.archetypes {
+            archetype.clear_entities();
+        }
+    }
+    
 }
 
 impl Index<RangeFrom<ArchetypeGeneration>> for Archetypes {
@@ -462,15 +613,16 @@ impl IndexMut<ArchetypeId> for Archetypes {
     }
 }
 
-/// The next [`ArchetypeId`] in an [`Archetypes`] collection.
-///
+/// [`Archetypes`] 集合中的下一个 [`ArchetypeId`]
+/// 
 /// This is used in archetype update methods to limit archetype updates to the
-/// ones added since the last time the method ran.
+/// ones added since the last time the method ran.\
+/// 这用于 `archetype` 更新方法，以限制 `archetype` 更新仅限于自上次方法运行以来添加的 `archetype`
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ArchetypeGeneration(ArchetypeId);
 
 impl ArchetypeGeneration {
-    /// The first archetype.
+    /// @return ArchetypeGeneration(ArchetypeId(0))
     #[inline]
     pub const fn initial() -> Self {
         ArchetypeGeneration(ArchetypeId::EMPTY)

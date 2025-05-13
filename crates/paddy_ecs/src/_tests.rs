@@ -1,5 +1,3 @@
-use paddy_utils::dbg;
-
 use crate::{component::Component, storage::StorageType, world::World};
 
 #[derive(Debug, Default)]

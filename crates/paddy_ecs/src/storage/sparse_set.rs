@@ -10,7 +10,7 @@ use crate::{
         tick::{ComponentTicks, Tick},
         ComponentId, ComponentInfo,
     },
-    entity::Entity,
+    entity::{Entity, EntityId},
 };
 
 /// Represents something that can be stored in a [`SparseSet`] as an integer.\
@@ -25,6 +25,8 @@ use crate::{
 pub trait SparseSetIndex: Clone + PartialEq + Eq + Hash {
     /// Gets the sparse set index corresponding to this instance.\
     /// 获取与此实例对应的稀疏集合索引
+    ///
+    /// 也许就是哈希函数
     fn sparse_set_index(&self) -> usize;
     /// Creates a new instance of this type with the specified index.\
     /// 使用指定的索引创建此类型的新实例
@@ -52,16 +54,16 @@ impl_sparse_set_index!(u8, u16, u32, u64, usize);
 macro_rules! impl_sparse_array {
     ($ty:ident) => {
         impl<I: SparseSetIndex, V> $ty<I, V> {
-            /// Returns `true` if the collection contains a value for the specified `index`.
+            /// @return 如果集合中包含指定 `index` 的值，返回 `true`
             #[inline]
             pub fn contains(&self, index: I) -> bool {
                 let index = index.sparse_set_index();
                 self.values.get(index).map(|v| v.is_some()).unwrap_or(false)
             }
 
-            /// Returns a reference to the value at `index`.
+            /// 返回 `index` 处的值 的引用
             ///
-            /// Returns `None` if `index` does not have a value or if `index` is out of bounds.
+            /// 如果 `index` 没有值或 `index` 超出范围，返回 `None`
             #[inline]
             pub fn get(&self, index: I) -> Option<&V> {
                 let index = index.sparse_set_index();
@@ -76,21 +78,21 @@ impl_sparse_array!(ImmutableSparseArray);
 macro_rules! impl_sparse_set {
     ($ty:ident) => {
         impl<I: SparseSetIndex, V> $ty<I, V> {
-            /// Returns the number of elements in the sparse set.
+            /// @retunr 元素数量
             #[inline]
             pub fn len(&self) -> usize {
                 self.dense.len()
             }
 
-            /// Returns `true` if the sparse set contains a value for `index`.
+            /// @return 如果稀疏集合中包含 `index` 的值，返回 `true`
             #[inline]
             pub fn contains(&self, index: I) -> bool {
                 self.sparse.contains(index)
             }
 
-            /// Returns a reference to the value for `index`.
+            /// 返回 `index` 处的值的引用
             ///
-            /// Returns `None` if `index` does not have a value in the sparse set.
+            /// 如果 `index` 在稀疏集合中没有值，返回 `None`
             pub fn get(&self, index: I) -> Option<&V> {
                 self.sparse.get(index).map(|dense_index| {
                     // SAFETY: if the sparse index points to something in the dense vec, it exists
@@ -98,9 +100,9 @@ macro_rules! impl_sparse_set {
                 })
             }
 
-            /// Returns a mutable reference to the value for `index`.
+            /// 返回 `index` 处的值的可变引用
             ///
-            /// Returns `None` if `index` does not have a value in the sparse set.
+            /// 如果 `index` 在稀疏集合中没有值，返回 `None`
             pub fn get_mut(&mut self, index: I) -> Option<&mut V> {
                 let dense = &mut self.dense;
                 self.sparse.get(index).map(move |dense_index| {
@@ -109,27 +111,27 @@ macro_rules! impl_sparse_set {
                 })
             }
 
-            /// Returns an iterator visiting all keys (indices) in arbitrary order.
+            /// 返回一个迭代器，以任意顺序访问所有key（index）
             pub fn indices(&self) -> impl Iterator<Item = I> + '_ {
                 self.indices.iter().cloned()
             }
 
-            /// Returns an iterator visiting all values in arbitrary order.
+            /// 返回一个迭代器，以任意顺序访问所有value
             pub fn values(&self) -> impl Iterator<Item = &V> {
                 self.dense.iter()
             }
 
-            /// Returns an iterator visiting all values mutably in arbitrary order.
+            /// 返回一个迭代器，以任意顺序访问所有value的可变引用
             pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
                 self.dense.iter_mut()
             }
 
-            /// Returns an iterator visiting all key-value pairs in arbitrary order, with references to the values.
+            /// 返回一个迭代器，以任意顺序访问所有 (&key,&value)
             pub fn iter(&self) -> impl Iterator<Item = (&I, &V)> {
                 self.indices.iter().zip(self.dense.iter())
             }
 
-            /// Returns an iterator visiting all key-value pairs in arbitrary order, with mutable references to the values.
+            /// 返回一个迭代器，以任意顺序访问所有 (&key,&mut value)
             pub fn iter_mut(&mut self) -> impl Iterator<Item = (&I, &mut V)> {
                 self.indices.iter().zip(self.dense.iter_mut())
             }
@@ -140,7 +142,7 @@ macro_rules! impl_sparse_set {
 impl_sparse_set!(SparseSet);
 impl_sparse_set!(ImmutableSparseSet);
 
-type EntityIndex = u32;
+type EntityIndex = EntityId;
 
 #[derive(Debug)]
 pub(crate) struct SparseArray<I, V = I> {
@@ -401,7 +403,7 @@ impl<I: SparseSetIndex, V> Default for SparseSet<I, V> {
 }
 
 impl<I, V> SparseSet<I, V> {
-    /// Creates a new [`SparseSet`].
+    /// 创建一个 [`SparseSet`].
     pub const fn new() -> Self {
         Self {
             dense: Vec::new(),
@@ -411,7 +413,7 @@ impl<I, V> SparseSet<I, V> {
     }
 }
 impl<I: SparseSetIndex, V> SparseSet<I, V> {
-    /// Creates a new [`SparseSet`] with a specified initial capacity.
+    /// 创建一个具有指定初始容量的 [`SparseSet`]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             dense: Vec::with_capacity(capacity),
@@ -420,15 +422,15 @@ impl<I: SparseSetIndex, V> SparseSet<I, V> {
         }
     }
 
-    /// Returns the total number of elements the [`SparseSet`] can hold without needing to reallocate.
+    /// @return 当前容量
     #[inline]
     pub fn capacity(&self) -> usize {
         self.dense.capacity()
     }
 
-    /// Inserts `value` at `index`.
+    /// 在 `index` 处插入 `value`
     ///
-    /// If a value was already present at `index`, it will be overwritten.
+    /// 如果 `index` 处已经有一个值，它将被覆盖
     pub fn insert(&mut self, index: I, value: V) {
         if let Some(dense_index) = self.sparse.get(index.clone()).cloned() {
             // SAFETY: dense indices stored in self.sparse always exist
@@ -445,8 +447,9 @@ impl<I: SparseSetIndex, V> SparseSet<I, V> {
         }
     }
 
-    /// Returns a reference to the value for `index`, inserting one computed from `func`
-    /// if not already present.
+    /// 返回 `index` 处的value的引用
+    ///
+    /// 如果该值不存在，则从 `func` 计算一个value并插入
     pub fn get_or_insert_with(
         &mut self,
         index: I,
@@ -467,15 +470,15 @@ impl<I: SparseSetIndex, V> SparseSet<I, V> {
         }
     }
 
-    /// Returns `true` if the sparse set contains no elements.
+    /// 如果稀疏集合为空，返回 `true`
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.dense.len() == 0
     }
 
-    /// Removes and returns the value for `index`.
+    /// 移除并返回 `index` 处的值
     ///
-    /// Returns `None` if `index` does not have a value in the sparse set.
+    /// 如果 `index` 在稀疏集合中没有值，返回 `None`
     pub fn remove(&mut self, index: I) -> Option<V> {
         self.sparse.remove(index).map(|dense_index| {
             let index = dense_index.get();
@@ -490,14 +493,14 @@ impl<I: SparseSetIndex, V> SparseSet<I, V> {
         })
     }
 
-    /// Clears all of the elements from the sparse set.
+    /// 清除稀疏集合中的所有元素,但不影响容量
     pub fn clear(&mut self) {
         self.dense.clear();
         self.indices.clear();
         self.sparse.clear();
     }
 
-    /// Converts the sparse set into its immutable variant.
+    /// 将 [`SparseSet`] 转换为[`ImmutableSparseSet`]
     pub(crate) fn into_immutable(self) -> ImmutableSparseSet<I, V> {
         ImmutableSparseSet {
             dense: self.dense.into_boxed_slice(),
@@ -518,33 +521,33 @@ pub(crate) struct ImmutableSparseSet<I, V: 'static> {
 /// 一个由 [`ComponentId`] 索引的 [`ComponentSparseSet`] 存储集合
 ///
 /// 可以通过 [`Storages`](crate::storage::Storages) 访问
-#[derive(Debug,Default)]
+#[derive(Debug, Default)]
 pub struct SparseSets {
     sets: SparseSet<ComponentId, ComponentSparseSet>,
 }
 
 impl SparseSets {
-    /// Returns the number of [`ComponentSparseSet`]s this collection contains.
+    /// 返回该集合中包含的 [`ComponentSparseSet`] 的数量
     #[inline]
     pub fn len(&self) -> usize {
         self.sets.len()
     }
 
-    /// Returns true if this collection contains no [`ComponentSparseSet`]s.
+    /// 如果该集合中不包含任何 [`ComponentSparseSet`]，返回 `true`
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.sets.is_empty()
     }
 
-    /// An Iterator visiting all ([`ComponentId`], [`ComponentSparseSet`]) pairs.
-    /// NOTE: Order is not guaranteed.
+    /// 返回一个迭代器，访问所有的 ([`ComponentId`], [`ComponentSparseSet`])
+    /// 注意：顺序不保证
     pub fn iter(
         &self,
     ) -> impl Iterator<Item = (ComponentId, &ComponentSparseSet)> {
         self.sets.iter().map(|(id, data)| (*id, data))
     }
 
-    /// Gets a reference to the [`ComponentSparseSet`] of a [`ComponentId`].
+    /// 通过给定 [`ComponentId`] 获取 [`ComponentSparseSet`] 的引用
     #[inline]
     pub fn get(
         &self,
@@ -553,8 +556,9 @@ impl SparseSets {
         self.sets.get(component_id)
     }
 
-    /// Gets a mutable reference of [`ComponentSparseSet`] of a [`ComponentInfo`].
-    /// Create a new [`ComponentSparseSet`] if not exists.
+    /// 通过给定 [`ComponentInfo`] 获取 [`ComponentSparseSet`] 的可变引用
+    /// 
+    /// 如果不存在，则创建一个新的 [`ComponentSparseSet`]
     pub(crate) fn get_or_insert(
         &mut self,
         component_info: &ComponentInfo,
@@ -569,7 +573,7 @@ impl SparseSets {
         self.sets.get_mut(component_info.id()).unwrap()
     }
 
-    /// Gets a mutable reference to the [`ComponentSparseSet`] of a [`ComponentId`].
+    /// 通过给定 [`ComponentId`] 获取 [`ComponentSparseSet`] 的可变引用
     pub(crate) fn get_mut(
         &mut self,
         component_id: ComponentId,
@@ -577,7 +581,7 @@ impl SparseSets {
         self.sets.get_mut(component_id)
     }
 
-    /// Clear entities stored in each [`ComponentSparseSet`]
+    /// 清除每个 [`ComponentSparseSet`] 中存储的Entity和Component
     pub(crate) fn clear_entities(&mut self) {
         for set in self.sets.values_mut() {
             set.clear();

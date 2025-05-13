@@ -2,10 +2,9 @@ use std::{
     alloc::Layout,
     cell::UnsafeCell,
     ops::{Index, IndexMut},
-    ptr::NonNull,
 };
 
-use paddy_ptr::{OwningPtr, Ptr, PtrMut};
+use paddy_ptr::{OwningPtr, Ptr, PtrMut, UnsafeCellDeref};
 use paddy_utils::hash::HashMap;
 
 use super::sparse_set::{ImmutableSparseSet, SparseSet};
@@ -14,6 +13,7 @@ use crate::{
         tick::{ComponentTicks, Tick},
         ComponentId, ComponentInfo, Components,
     },
+    debug::DebugCheckedUnwrap,
     entity::Entity,
     storage::blob_vec::BlobVec,
 };
@@ -95,14 +95,17 @@ pub(crate) struct Column {
 }
 
 impl Column {
+    /// @return 元素的内存布局信息
     #[inline]
     pub fn item_layout(&self) -> Layout {
         self.data.layout()
     }
+    /// @return 当前元素数量
     #[inline]
     pub fn len(&self) -> usize {
         self.data.len()
     }
+    /// @return true : is empty
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
@@ -150,6 +153,34 @@ impl Column {
             .changed_ticks
             .get_unchecked_mut(row.as_usize())
             .get_mut() = tick;
+    }
+
+    /// 从 `other` 的 `src_row`行 移除元素, 并将其插入到当前 column 中，以初始化 `dst_row`行 的值\
+    /// 即 将 `other`的`src_row`行的元素 移动 到 `self`的`dst_row`行中
+    ///
+    /// 不进行边界检查
+    ///
+    /// # 安全性
+    ///
+    /// - `other` 必须与 `self` 具有相同的内存布局
+    /// - `src_row` 必须在 `other` 的有效范围内
+    /// - `dst_row` 必须在 `self` 的有效范围内
+    /// - `other[src_row]` 必须初始化为有效的值
+    /// - `self[dst_row]` 尚未被初始化
+    #[inline]
+    pub(crate) unsafe fn initialize_from_unchecked(
+        &mut self,
+        other: &mut Column,
+        src_row: TableRow,
+        dst_row: TableRow,
+    ) {
+        debug_assert!(self.data.layout() == other.data.layout());
+        let ptr = self.data.get_unchecked_mut(dst_row.as_usize());
+        other.data.swap_remove_unchecked(src_row.as_usize(), ptr);
+        *self.added_ticks.get_unchecked_mut(dst_row.as_usize()) =
+            other.added_ticks.swap_remove(src_row.as_usize());
+        *self.changed_ticks.get_unchecked_mut(dst_row.as_usize()) =
+            other.changed_ticks.swap_remove(src_row.as_usize());
     }
 
     /// 将组件数据写入指定行的列中 (用于覆盖数据)
@@ -221,7 +252,7 @@ impl Column {
         self.data.get_unchecked(row.as_usize())
     }
 
-    /// 获取 `row` 行的数据的可变引用
+    /// 获取指向 `row`行的数据 的可变引用
     ///
     /// @return 如果 `row` 越界，则返回 `None`
     #[inline]
@@ -233,14 +264,26 @@ impl Column {
         })
     }
 
-    /// Fetches the slice to the [`Column`]'s data cast to a given type.
+    /// 获取指向 `row`行的数据 的可变引用, 不进行边界检查
+    /// # Safety
+    /// - `index` 必须在有效范围内
+    /// - 在同一时间内，不能存在指向同一行数据的其他引用
+    #[inline]
+    pub(crate) unsafe fn get_data_unchecked_mut(
+        &mut self,
+        row: TableRow,
+    ) -> PtrMut<'_> {
+        debug_assert!(row.as_usize() < self.data.len());
+        self.data.get_unchecked_mut(row.as_usize())
+    }
+
+    /// 获取指向 [`Column`] 数据的切片，并将其转换为指定的类型
     ///
-    /// Note: The values stored within are [`UnsafeCell`].
-    /// Users of this API must ensure that accesses to each individual element
-    /// adhere to the safety invariants of [`UnsafeCell`].
+    /// 注意：存储的值是 [`UnsafeCell`] 类型,
+    /// 使用此 API 的用户必须确保对每个元素的访问都遵循 [`UnsafeCell`] 的安全不变量
     ///
     /// # Safety
-    /// The type `T` must be the type of the items in this column.
+    /// 类型 `T` 必须是此 column 中元素的类型
     pub unsafe fn get_data_slice<T>(&self) -> &[UnsafeCell<T>] {
         self.data.get_slice()
     }
@@ -263,7 +306,7 @@ impl Column {
         self.changed_ticks.swap_remove(row.as_usize());
     }
 
-    /// 从 [`Column`] 中移除一个元素，并返回它和它的变更检测计时信息(暂时不打算加入Tick,未来可能加入,所以文档不变)
+    /// 从 [`Column`] 中移除一个元素，并返回它和它的变更检测计时信息
     /// 这个操作不保证元素的顺序，但它是 O(1) 复杂度的操作，并且不会进行边界检查
     ///
     /// 被移除的元素将由 [`Column`] 中的最后一个元素替换
@@ -294,6 +337,96 @@ impl Column {
         self.added_ticks.clear();
         self.changed_ticks.clear();
     }
+}
+
+// for tick
+impl Column {
+    /// 获取指定 `row` 的 "added" change detection tick
+    ///
+    /// 如果 `row` 超出范围，返回 `None`
+    ///
+    /// 注意：存储的值是 [`UnsafeCell`] 类型,
+    /// 使用此 API 的用户必须确保对每个元素的访问都遵循 [`UnsafeCell`] 的安全不变量
+    #[inline]
+    pub fn get_added_tick(&self, row: TableRow) -> Option<&UnsafeCell<Tick>> {
+        self.added_ticks.get(row.as_usize())
+    }
+
+    /// 获取指定 `row` 的 "changed" change detection tick
+    ///
+    /// 如果 `row` 超出范围，返回 `None`
+    ///
+    /// 注意：存储的值是 [`UnsafeCell`] 类型,
+    /// 使用此 API 的用户必须确保对每个元素的访问都遵循 [`UnsafeCell`] 的安全不变量
+    #[inline]
+    pub fn get_changed_tick(&self, row: TableRow) -> Option<&UnsafeCell<Tick>> {
+        self.changed_ticks.get(row.as_usize())
+    }
+
+    /// 获取指定 `row` 的 change detection ticks
+    ///
+    /// 如果 `row` 超出范围，返回 `None`
+    #[inline]
+    pub fn get_ticks(&self, row: TableRow) -> Option<ComponentTicks> {
+        if row.as_usize() < self.data.len() {
+            // SAFETY: The size of the column has already been checked.
+            Some(unsafe { self.get_ticks_unchecked(row) })
+        } else {
+            None
+        }
+    }
+
+    /// 获取指定 `row` 的 "added" change detection tick
+    ///
+    /// 这个函数不进行边界检查
+    ///
+    /// # 安全性
+    /// `row` 必须在范围 `[0, self.len())` 内
+    #[inline]
+    pub unsafe fn get_added_tick_unchecked(
+        &self,
+        row: TableRow,
+    ) -> &UnsafeCell<Tick> {
+        debug_assert!(row.as_usize() < self.added_ticks.len());
+        self.added_ticks.get_unchecked(row.as_usize())
+    }
+
+    /// 获取指定 `row` 的 "changed" change detection tick
+    ///
+    /// 这个函数不进行边界检查
+    ///
+    /// # 安全性
+    /// `row` 必须在范围 `[0, self.len())` 内
+    #[inline]
+    pub unsafe fn get_changed_tick_unchecked(
+        &self,
+        row: TableRow,
+    ) -> &UnsafeCell<Tick> {
+        debug_assert!(row.as_usize() < self.changed_ticks.len());
+        self.changed_ticks.get_unchecked(row.as_usize())
+    }
+
+    /// Fetches the change detection ticks for the value at `row`. Unlike [`Column::get_ticks`]
+    /// this function does not do any bounds checking.
+    ///
+    /// # Safety
+    /// `row` must be within the range `[0, self.len())`.
+
+    /// 获取指定 `row` 的 change detection ticks
+    ///
+    /// 这个函数不进行边界检查
+    ///
+    /// # 安全性
+    /// `row` 必须在范围 `[0, self.len())` 内
+    #[inline]
+    pub unsafe fn get_ticks_unchecked(&self, row: TableRow) -> ComponentTicks {
+        debug_assert!(row.as_usize() < self.added_ticks.len());
+        debug_assert!(row.as_usize() < self.changed_ticks.len());
+        ComponentTicks {
+            added: self.added_ticks.get_unchecked(row.as_usize()).read(),
+            changed: self.changed_ticks.get_unchecked(row.as_usize()).read(),
+        }
+    }
 
     #[inline]
     pub(crate) fn check_change_ticks(&mut self, change_tick: Tick) {
@@ -306,23 +439,21 @@ impl Column {
     }
 }
 
-/// A builder type for constructing [`Table`]s.
+/// 用于构建 [`Table`] 的构建器类型
 ///
-///  - Use [`with_capacity`] to initialize the builder.
-///  - Repeatedly call [`add_column`] to add columns for components.
-///  - Finalize with [`build`] to get the constructed [`Table`].
+///  - 使用 [`with_capacity`](Self::with_capacity) 来初始化构建器
+///  - 反复调用 [`add_column`](Self::add_column) 添加组件的列
+///  - 最后用 [`build`](Self::build) 来构建 [`Table`]
 ///
-/// [`with_capacity`]: Self::with_capacity
-/// [`add_column`]: Self::add_column
-/// [`build`]: Self::build
 pub(crate) struct TableBuilder {
     columns: SparseSet<ComponentId, Column>,
     capacity: usize,
 }
 
 impl TableBuilder {
-    /// Creates a blank [`Table`], allocating space for `column_capacity` columns
-    /// with the capacity to hold `capacity` entities worth of components each.
+    /// `column_capacity` 表示 Table的列数
+    ///
+    /// 每列的初始容量为 `capacity`
     pub fn with_capacity(capacity: usize, column_capacity: usize) -> Self {
         Self {
             columns: SparseSet::with_capacity(column_capacity),
@@ -372,7 +503,7 @@ pub(crate) struct Table {
 }
 
 impl Table {
-    ///  获取存储在 [`Table`] 中的Entity的只读切片
+    /// 获取存储在 [`Table`] 中的Entity的只读切片
     #[inline]
     pub fn entities(&self) -> &[Entity] {
         &self.entities
@@ -405,29 +536,162 @@ impl Table {
         self.entities.capacity()
     }
 
-    /// Fetches a read-only reference to the [`Column`] for a given [`Component`] within the
-    /// table.
+    /// 获取表中给定 [`Component`](crate::component::Component) 的 [`Column`] 的只读引用
     ///
-    /// Returns `None` if the corresponding component does not belong to the table.
+    /// 如果相应的Component不属于该Table，返回 `None`
     ///
-    /// [`Component`]: crate::component::Component
     #[inline]
     pub fn get_column(&self, component_id: ComponentId) -> Option<&Column> {
         self.columns.get(component_id)
     }
 
-    /// Fetches a mutable reference to the [`Column`] for a given [`Component`] within the
-    /// table.
+    /// 获取表中给定 [`Component`](crate::component::Component) 的 [`Column`] 的可变引用
     ///
-    /// Returns `None` if the corresponding component does not belong to the table.
+    /// 如果相应的Component不属于该Table，返回 `None`
     ///
-    /// [`Component`]: crate::component::Component
     #[inline]
     pub(crate) fn get_column_mut(
         &mut self,
         component_id: ComponentId,
     ) -> Option<&mut Column> {
         self.columns.get_mut(component_id)
+    }
+
+    /// 检查Table是否包含给定 [`Component`] 的 [`Column`]
+    ///
+    /// 如果该column存在，返回 `true`，否则返回 `false`
+    ///
+    /// [`Component`]: crate::component::Component
+    #[inline]
+    pub fn has_column(&self, component_id: ComponentId) -> bool {
+        self.columns.contains(component_id)
+    }
+
+    /// 移除给定行的Entity
+    ///
+    /// @return 若`row`是table的最后一行,则返回`None`,
+    /// 否则它将返回 替换`row`行的Entity (往往是table的最后一行的Entity)
+    ///
+    /// # 安全性
+    /// `row` 必须在有效范围内
+    pub(crate) unsafe fn swap_remove_unchecked(
+        &mut self,
+        row: TableRow,
+    ) -> Option<Entity> {
+        for column in self.columns.values_mut() {
+            column.swap_remove_unchecked(row);
+        }
+        let is_last = row.as_usize() == self.entities.len() - 1;
+        self.entities.swap_remove(row.as_usize());
+        if is_last {
+            None
+        } else {
+            Some(self.entities[row.as_usize()])
+        }
+    }
+
+    /// 将`self`中的`row`行 移动到 `new_table` 中
+    ///
+    /// 返回类型包含 `new_table`中的行(被移动后的Entity 所属的行) 和 `self`中补充到`row`行的Entity
+    ///
+    /// missing columns will be "forgotten". It is
+    /// the caller's responsibility to drop them.  Failure to do so may result in resources not
+    /// being released (i.e. files handles not being released, memory leaks, etc.)\
+    /// 缺失的列将被“遗忘”。调用者有责任释放它们。未能释放它们可能导致资源未释放（例如文件句柄未释放、内存泄漏等）
+    ///
+    /// # 安全性
+    /// `row` 必须在有效范围内
+    pub(crate) unsafe fn move_to_and_forget_missing_unchecked(
+        &mut self,
+        row: TableRow,
+        new_table: &mut Table,
+    ) -> TableMoveResult {
+        debug_assert!(row.as_usize() < self.entity_count());
+        let is_last = row.as_usize() == self.entities.len() - 1;
+        let new_row =
+            new_table.allocate(self.entities.swap_remove(row.as_usize()));
+        for (component_id, column) in self.columns.iter_mut() {
+            // 若存在匹配的Component,则移动进new_table,否则 将Component从 old_table移除
+            if let Some(new_column) = new_table.get_column_mut(*component_id) {
+                new_column.initialize_from_unchecked(column, row, new_row);
+            } else {
+                // It's the caller's responsibility to drop these cases.
+                // ? 这咋释放内存 ? 难道默认的drop会进行释放?
+                let (_, _) = column.swap_remove_and_forget_unchecked(row);
+            }
+        }
+        TableMoveResult {
+            new_row,
+            swapped_entity: if is_last {
+                None
+            } else {
+                Some(self.entities[row.as_usize()])
+            },
+        }
+    }
+
+    /// 将`self`中的`row`行 移动到 `new_table` 中
+    ///
+    /// 返回类型包含 `new_table`中的行(被移动后的Entity 所属的行) 和 `self`中补充到`row`行的Entity
+    ///
+    /// # 安全性
+    /// `row` 必须在有效范围内
+    pub(crate) unsafe fn move_to_and_drop_missing_unchecked(
+        &mut self,
+        row: TableRow,
+        new_table: &mut Table,
+    ) -> TableMoveResult {
+        debug_assert!(row.as_usize() < self.entity_count());
+        let is_last = row.as_usize() == self.entities.len() - 1;
+        let new_row =
+            new_table.allocate(self.entities.swap_remove(row.as_usize()));
+        for (component_id, column) in self.columns.iter_mut() {
+            if let Some(new_column) = new_table.get_column_mut(*component_id) {
+                new_column.initialize_from_unchecked(column, row, new_row);
+            } else {
+                column.swap_remove_unchecked(row);
+            }
+        }
+        TableMoveResult {
+            new_row,
+            swapped_entity: if is_last {
+                None
+            } else {
+                Some(self.entities[row.as_usize()])
+            },
+        }
+    }
+
+    /// 将`self`中的`row`行 移动到 `new_table` 中
+    ///
+    /// 返回类型包含 `new_table`中的行(被移动后的Entity 所属的行) 和 `self`中补充到`row`行的Entity
+    ///
+    /// # 安全性
+    /// - `row` 必须在有效范围内
+    /// - `new_table` 必须包含此table中的每个组件
+    pub(crate) unsafe fn move_to_superset_unchecked(
+        &mut self,
+        row: TableRow,
+        new_table: &mut Table,
+    ) -> TableMoveResult {
+        debug_assert!(row.as_usize() < self.entity_count());
+        let is_last = row.as_usize() == self.entities.len() - 1;
+        let new_row =
+            new_table.allocate(self.entities.swap_remove(row.as_usize()));
+        for (component_id, column) in self.columns.iter_mut() {
+            new_table
+                .get_column_mut(*component_id)
+                .debug_checked_unwrap()
+                .initialize_from_unchecked(column, row, new_row);
+        }
+        TableMoveResult {
+            new_row,
+            swapped_entity: if is_last {
+                None
+            } else {
+                Some(self.entities[row.as_usize()])
+            },
+        }
     }
 
     /// 扩展剩余容量
@@ -444,7 +708,9 @@ impl Table {
         }
     }
 
-    /// 为一个新的Entity分配空间
+    /// 为一个新的Entity 在Table中分配空间
+    ///
+    /// #note: 归属于这个Entity的所有Component并未初始化
     ///
     /// # Safety
     /// - the allocated row must be written to immediately with valid values in each column\
@@ -461,6 +727,12 @@ impl Table {
         TableRow::from_usize(index)
     }
 
+    pub(crate) fn check_change_ticks(&mut self, change_tick: Tick) {
+        for column in self.columns.values_mut() {
+            column.check_change_ticks(change_tick);
+        }
+    }
+
     /// @return [`Table`]中[`Column`]的迭代器
     pub fn iter(&self) -> impl Iterator<Item = &Column> {
         self.columns.values()
@@ -473,6 +745,13 @@ impl Table {
             column.clear();
         }
     }
+}
+
+pub(crate) struct TableMoveResult {
+    /// old table 中 行被移动后 补充到 被移动行 的Entity
+    pub swapped_entity: Option<Entity>,
+    /// new table 的 行
+    pub new_row: TableRow,
 }
 
 /// Table 是没必要摧毁的,分配id后就永远是这个id
@@ -498,11 +777,32 @@ impl Tables {
         self.tables.get(id.as_usize())
     }
 
-    /// Attempts to fetch a table based on the provided components,
-    /// creating and returning a new [`Table`] if one did not already exist.
+    /// 获取两个不同的 [`Table`] 的可变引用
     ///
-    /// # Safety
-    /// `component_ids` must contain components that exist in `components`
+    //  #play : 哇~这玩意咋还在借用检查器里,难怪它要写成这样,又学一招挑逗编译器a
+    /// # Panics
+    ///
+    /// 如果 `a` 和 `b` 相等，会导致 panic
+    #[inline]
+    pub(crate) fn get_2_mut(
+        &mut self,
+        a: TableId,
+        b: TableId,
+    ) -> (&mut Table, &mut Table) {
+        if a.as_usize() > b.as_usize() {
+            let (b_slice, a_slice) = self.tables.split_at_mut(a.as_usize());
+            (&mut a_slice[0], &mut b_slice[b.as_usize()])
+        } else {
+            let (a_slice, b_slice) = self.tables.split_at_mut(b.as_usize());
+            (&mut a_slice[a.as_usize()], &mut b_slice[0])
+        }
+    }
+
+    /// 尝试根据提供的`component_ids` 获取一个Table，
+    /// 如果Table不存在，则创建一个新的[`Table`]并返回[`TableId`] 
+    ///
+    /// # 安全性
+    /// `component_ids`中的元素(ComponentId) 必须 在 `components` 中有记录
     pub(crate) unsafe fn get_id_or_insert(
         &mut self,
         component_ids: &[ComponentId],
@@ -524,8 +824,25 @@ impl Tables {
                 tables.push(table.build());
                 (component_ids.into(), TableId::from_usize(tables.len() - 1))
             });
-
         *value
+    }
+
+    /// 按 [`TableId`] 顺序(0..)迭代所有存储的表
+    pub fn iter(&self) -> std::slice::Iter<'_, Table> {
+        self.tables.iter()
+    }
+
+    /// 清除所有 [`Table`] 中的所有数据 , 但容量不变
+    pub(crate) fn clear(&mut self) {
+        for table in &mut self.tables {
+            table.clear();
+        }
+    }
+
+    pub(crate) fn check_change_ticks(&mut self, change_tick: Tick) {
+        for table in &mut self.tables {
+            table.check_change_ticks(change_tick);
+        }
     }
 }
 

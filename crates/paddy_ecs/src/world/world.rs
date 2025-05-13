@@ -48,7 +48,7 @@ pub struct World {
 impl Default for World {
     fn default() -> Self {
         Self {
-            world_id: WorldId::next().expect("More `bevy` `World`s have been created than is supported"),
+            world_id: WorldId::next().expect("More `paddy` `World`s have been created than is supported"),
             entities: Entities::new(),
             components: Default::default(),
             archetypes: Archetypes::new(),
